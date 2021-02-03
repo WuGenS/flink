@@ -35,14 +35,18 @@ import java.util.concurrent.Future;
 
 /**
  * {@link StreamTask} for executing a {@link StreamSource}.
- *
+ * 用于执行StreamSource的StreamTask。
  * <p>One important aspect of this is that the checkpointing and the emission of elements must never
  * occur at the same time. The execution must be serial. This is achieved by having the contract
  * with the {@link SourceFunction} that it must only modify its state or emit elements in
  * a synchronized block that locks on the lock Object. Also, the modification of the state
  * and the emission of elements must happen in the same block of code that is protected by the
  * synchronized block.
- *
+ * <p>其中一个重要方面是元素的检查点和发射必须永远不会同时发生。
+ * 执行必须是串行的。 这是通过与SourceFunction达成的契约而实现的，
+ * 即它只能修改其状态或发出锁定在锁对象上的同步块中的元素。
+ * 同样，状态的修改和元素的发射必须发生在受同步块保护的同一代码块中。
+ * </p>
  * @param <OUT> Type of the output elements of this source.
  * @param <SRC> Type of the source function for the stream source operator
  * @param <OP> Type of the stream source operator

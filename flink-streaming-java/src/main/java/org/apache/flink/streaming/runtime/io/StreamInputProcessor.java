@@ -25,6 +25,7 @@ import java.io.Closeable;
 
 /**
  * Interface for processing records by {@link org.apache.flink.streaming.runtime.tasks.StreamTask}.
+ * 用于通过StreamTask处理记录的接口。(被StreamTask用来处理接收到的数据)
  */
 @Internal
 public interface StreamInputProcessor extends AvailabilityProvider, Closeable {
@@ -32,6 +33,8 @@ public interface StreamInputProcessor extends AvailabilityProvider, Closeable {
 	 * @return input status to estimate whether more records can be processed immediately or not.
 	 * If there are no more records available at the moment and the caller should check finished
 	 * state and/or {@link #getAvailableFuture()}.
+	 * 输入状态以估计是否可以立即处理更多记录。
+	 * 如果目前没有可用的记录，则调用者应检查完成状态和/或getAvailableFuture（）。
 	 */
 	InputStatus processInput() throws Exception;
 }

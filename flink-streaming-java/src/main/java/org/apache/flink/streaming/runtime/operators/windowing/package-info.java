@@ -19,5 +19,5 @@
  * This package contains the operators that implement the various window operations
  * on data streams.
  */
-
+// 这个包包含实现了在数据流上的各种窗口操作的操作符
 package org.apache.flink.streaming.runtime.operators.windowing;

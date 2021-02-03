@@ -69,6 +69,7 @@ public class InternalTimerServiceImpl<K, N> implements InternalTimerService<N> {
 	 * The local event time, as denoted by the last received
 	 * {@link org.apache.flink.streaming.api.watermark.Watermark Watermark}.
 	 */
+	//本地事件时间，以最后收到的水印表示。
 	private long currentWatermark = Long.MIN_VALUE;
 
 	/**

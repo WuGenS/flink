@@ -110,13 +110,13 @@ import static org.apache.flink.util.Preconditions.checkNotNull;
  * The StreamExecutionEnvironment is the context in which a streaming program is executed. A
  * {@link LocalStreamEnvironment} will cause execution in the current JVM, a
  * {@link RemoteStreamEnvironment} will cause execution on a remote setup.
- *
  * <p>The environment provides methods to control the job execution (such as setting the parallelism
  * or the fault tolerance/checkpointing parameters) and to interact with the outside world (data access).
- *
+ * 该环境提供了控制作业执行的方法(例如设置并行性或容错/检查点参数)，以及与外部世界交互的方法(数据访问)。
  * @see org.apache.flink.streaming.api.environment.LocalStreamEnvironment
  * @see org.apache.flink.streaming.api.environment.RemoteStreamEnvironment
  */
+//  StreamExecutionEnvironment是一个流程序被执行的上下文。
 @Public
 public class StreamExecutionEnvironment {
 

@@ -29,6 +29,8 @@ import org.apache.flink.streaming.runtime.streamstatus.StreamStatus;
  * The variant of {@link PullingAsyncDataInput} that is defined for handling both network
  * input and source input in a unified way via {@link #emitNext(DataOutput)} instead
  * of returning {@code Optional.empty()} via {@link PullingAsyncDataInput#pollNext()}.
+ * <p>定义了PullingAsyncDataInput的变体，该变体定义为通过emitNext（PushingAsyncDataInput.DataOutput）统一处理网络输入和源输入，
+ * 而不是通过PullingAsyncDataInput.pollNext（）返回Optional.empty（）。
  */
 @Internal
 public interface PushingAsyncDataInput<T> extends AvailabilityProvider {
@@ -37,14 +39,15 @@ public interface PushingAsyncDataInput<T> extends AvailabilityProvider {
 	 * Pushes the next element to the output from current data input, and returns
 	 * the input status to indicate whether there are more available data in
 	 * current input.
-	 *
+	 * 将下一个元素推送到当前数据输入的输出，并返回输入状态以指示当前输入中是否还有更多可用数据。
 	 * <p>This method should be non blocking.
+	 * <p>此方法应该是非阻塞的。 </p>
 	 */
 	InputStatus emitNext(DataOutput<T> output) throws Exception;
 
 	/**
 	 * Basic data output interface used in emitting the next element from data input.
-	 *
+	 * 基本数据输出接口，用于从数据输入中发出下一个元素。
 	 * @param <T> The type encapsulated with the stream record.
 	 */
 	interface DataOutput<T> {

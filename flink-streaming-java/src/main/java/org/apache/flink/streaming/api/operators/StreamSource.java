@@ -35,9 +35,9 @@ import java.util.concurrent.ScheduledFuture;
 
 /**
  * {@link StreamOperator} for streaming sources.
- *
- * @param <OUT> Type of the output elements
- * @param <SRC> Type of the source function of this stream source operator
+ * 用于streaming sources的StreamOperator
+ * @param <OUT> Type of the output elements 输出元素类型
+ * @param <SRC> Type of the source function of this stream source operator 此流source操作符的source函数类型
  */
 @Internal
 public class StreamSource<OUT, SRC extends SourceFunction<OUT>> extends AbstractUdfStreamOperator<OUT, SRC> {
@@ -53,6 +53,7 @@ public class StreamSource<OUT, SRC extends SourceFunction<OUT>> extends Abstract
 	public StreamSource(SRC sourceFunction) {
 		super(sourceFunction);
 
+		// 表示operator不能有前置operator，但可以作为其他operator的前置operator
 		this.chainingStrategy = ChainingStrategy.HEAD;
 	}
 
@@ -164,6 +165,7 @@ public class StreamSource<OUT, SRC extends SourceFunction<OUT>> extends Abstract
 
 	/**
 	 * Checks whether the source has been canceled or stopped.
+	 * 检查源是否已被取消或停止。
 	 * @return True, if the source is canceled or stopped, false is not.
 	 */
 	protected boolean isCanceledOrStopped() {

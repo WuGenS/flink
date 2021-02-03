@@ -35,6 +35,7 @@ public class EventTimeTrigger extends Trigger<Object, TimeWindow> {
 
 	@Override
 	public TriggerResult onElement(Object element, long timestamp, TimeWindow window, TriggerContext ctx) throws Exception {
+		// 水印达到窗口最大值时触发，否则注册一个窗口最大时间的EventTimeTimer
 		if (window.maxTimestamp() <= ctx.getCurrentWatermark()) {
 			// if the watermark is already past the window fire immediately
 			return TriggerResult.FIRE;
@@ -68,7 +69,7 @@ public class EventTimeTrigger extends Trigger<Object, TimeWindow> {
 
 	@Override
 	public void onMerge(TimeWindow window,
-			OnMergeContext ctx) {
+						OnMergeContext ctx) {
 		// only register a timer if the watermark is not yet past the end of the merged window
 		// this is in line with the logic in onElement(). If the watermark is past the end of
 		// the window onElement() will fire and setting a timer here would fire the window twice.

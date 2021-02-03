@@ -21,7 +21,7 @@ import org.apache.flink.annotation.Internal;
 
 /**
  * One value in a data stream. This stores the value and an optional associated timestamp.
- *
+ * 数据流中的一个值。它存储值和一个可选的关联时间戳。
  * @param <T> The type encapsulated with the stream record.
  */
 @Internal
@@ -33,7 +33,7 @@ public final class StreamRecord<T> extends StreamElement {
 	/** The timestamp of the record. */
 	private long timestamp;
 
-	/** Flag whether the timestamp is actually set. */
+	/** Flag whether the timestamp is actually set. 标记是否实际设置了时间戳*/
 	private boolean hasTimestamp;
 
 	/**
@@ -82,7 +82,7 @@ public final class StreamRecord<T> extends StreamElement {
 	}
 
 	/** Checks whether this record has a timestamp.
-	 *
+	 *检查此记录是否有时间戳。
  	 * @return True if the record has a timestamp, false if not.
 	 */
 	public boolean hasTimestamp() {

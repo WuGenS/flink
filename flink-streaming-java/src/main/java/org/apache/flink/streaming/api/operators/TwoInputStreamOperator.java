@@ -27,7 +27,7 @@ import org.apache.flink.streaming.runtime.streamrecord.StreamRecord;
  * Interface for stream operators with two inputs. Use
  * {@link org.apache.flink.streaming.api.operators.AbstractStreamOperator} as a base class if
  * you want to implement a custom operator.
- *
+ * 具有两个输入的流运算符的接口。 如果要实现自定义运算符，请使用AbstractStreamOperator作为基类。
  * @param <IN1> The input type of the operator
  * @param <IN2> The input type of the operator
  * @param <OUT> The output type of the operator
@@ -38,6 +38,7 @@ public interface TwoInputStreamOperator<IN1, IN2, OUT> extends StreamOperator<OU
 	/**
 	 * Processes one element that arrived on the first input of this two-input operator.
 	 * This method is guaranteed to not be called concurrently with other methods of the operator.
+	 * <p>处理到达此双输入运算符的第一个输入的元素。 保证不会与操作符的其他方法同时调用此方法。 </p>
 	 */
 	void processElement1(StreamRecord<IN1> element) throws Exception;
 

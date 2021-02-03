@@ -24,16 +24,17 @@ import org.apache.flink.runtime.jobgraph.OperatorID;
 /**
  * Special record type carrying a timestamp of its creation time at a source operator
  * and the vertexId and subtask index of the operator.
- *
+ * 一种特殊的记录类型，包含source算子的创建时间戳以及operator的vertexId和子任务索引。
  * <p>At sinks, the marker can be used to approximate the time a record needs to travel
  * through the dataflow.
+ * 当sink时，可以使用标记来估算记录通过数据流所需的时间。
  */
 @PublicEvolving
 public final class LatencyMarker extends StreamElement {
 
 	// ------------------------------------------------------------------------
 
-	/** The time the latency mark is denoting. */
+	/** The time the latency mark is denoting. 延迟标记所表示的时间。 */
 	private final long markedTime;
 
 	private final OperatorID operatorId;
@@ -98,9 +99,9 @@ public final class LatencyMarker extends StreamElement {
 	@Override
 	public String toString() {
 		return "LatencyMarker{" +
-				"markedTime=" + markedTime +
-				", operatorId=" + operatorId +
-				", subtaskIndex=" + subtaskIndex +
-				'}';
+			"markedTime=" + markedTime +
+			", operatorId=" + operatorId +
+			", subtaskIndex=" + subtaskIndex +
+			'}';
 	}
 }

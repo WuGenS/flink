@@ -22,13 +22,14 @@ import org.apache.flink.annotation.Internal;
 
 /**
  * Interface for retrieving the current {@link StreamStatus}.
+ * 用于检索当前StreamStatus的接口
  */
 @Internal
 public interface StreamStatusProvider {
 
 	/**
 	 * Returns the current stream status.
-	 *
+	 * 返回当前流状态。
 	 * @return current stream status.
 	 */
 	StreamStatus getStreamStatus();

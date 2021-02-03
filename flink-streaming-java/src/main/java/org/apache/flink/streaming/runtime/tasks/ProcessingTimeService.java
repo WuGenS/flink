@@ -35,7 +35,7 @@ public interface ProcessingTimeService {
 
 	/**
 	 * Registers a task to be executed when (processing) time is {@code timestamp}.
-	 *
+	 * 注册要在(处理)时间戳时执行的任务。注册一个定时器任务，回调参数是ProcessingTimeCallback
 	 * @param timestamp   Time when the task is to be executed (in processing time)
 	 * @param target      The task to be executed
 	 *

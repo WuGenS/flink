@@ -22,6 +22,7 @@ import org.apache.flink.annotation.Internal;
 
 /**
  * Interface that allows toggling the current {@link StreamStatus} as well as retrieving it.
+ * 允许切换和检索当前StreamStatus的接口。
  */
 @Internal
 public interface StreamStatusMaintainer extends StreamStatusProvider {
@@ -29,8 +30,8 @@ public interface StreamStatusMaintainer extends StreamStatusProvider {
 	/**
 	 * Toggles the current stream status. This method should only have effect
 	 * if the supplied stream status is different from the current status.
-	 *
-	 * @param streamStatus the new status to toggle to
+	 * 切换当前流状态。 仅在提供的流状态与当前状态不同时，此方法才有效。
+	 * @param streamStatus the new status to toggle to 要切换到的新状态
 	 */
 	void toggleStreamStatus(StreamStatus streamStatus);
 

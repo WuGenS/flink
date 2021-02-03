@@ -64,21 +64,26 @@ public class SlidingEventTimeWindows extends WindowAssigner<Object, TimeWindow> 
 		this.offset = offset;
 	}
 
+
+
+	// 分配每个元素到指定窗口的具体逻辑,返回TimeWindow的集合，集合大小等于窗口大小/滑动步长
 	@Override
 	public Collection<TimeWindow> assignWindows(Object element, long timestamp, WindowAssignerContext context) {
 		if (timestamp > Long.MIN_VALUE) {
 			List<TimeWindow> windows = new ArrayList<>((int) (size / slide));
+			// 获取窗口开始时间
 			long lastStart = TimeWindow.getWindowStartWithOffset(timestamp, offset, slide);
+			// 计算这个元素所属的窗口
 			for (long start = lastStart;
-				start > timestamp - size;
-				start -= slide) {
+				 start > timestamp - size;
+				 start -= slide) {
 				windows.add(new TimeWindow(start, start + size));
 			}
 			return windows;
 		} else {
 			throw new RuntimeException("Record has Long.MIN_VALUE timestamp (= no timestamp marker). " +
-					"Is the time characteristic set to 'ProcessingTime', or did you forget to call " +
-					"'DataStream.assignTimestampsAndWatermarks(...)'?");
+				"Is the time characteristic set to 'ProcessingTime', or did you forget to call " +
+				"'DataStream.assignTimestampsAndWatermarks(...)'?");
 		}
 	}
 
@@ -90,6 +95,7 @@ public class SlidingEventTimeWindows extends WindowAssigner<Object, TimeWindow> 
 		return slide;
 	}
 
+	// 获取指定的触发器
 	@Override
 	public Trigger<Object, TimeWindow> getDefaultTrigger(StreamExecutionEnvironment env) {
 		return EventTimeTrigger.create();

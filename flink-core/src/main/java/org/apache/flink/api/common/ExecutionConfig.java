@@ -128,7 +128,7 @@ public class ExecutionConfig implements Serializable, Archiveable<ArchivedExecut
 	private boolean forceAvro = false;
 
 	private CodeAnalysisMode codeAnalysisMode = CodeAnalysisMode.DISABLE;
-
+	// 设置周期发出水印的时间，默认是0，每条记录都会产生一个 watermark,flink 1.12改为200ms
 	private long autoWatermarkInterval = 0;
 
 	/**
@@ -238,7 +238,8 @@ public class ExecutionConfig implements Serializable, Archiveable<ArchivedExecut
 	 * Sets the interval of the automatic watermark emission. Watermarks are used throughout
 	 * the streaming system to keep track of the progress of time. They are used, for example,
 	 * for time based windowing.
-	 *
+	 * 设置自动水印发射的时间间隔。在整个流系统中使用水印来跟踪时间的进展。
+	 * 例如，它们用于基于时间的窗口。
 	 * @param interval The interval between watermarks in milliseconds.
 	 */
 	@PublicEvolving
@@ -1132,21 +1133,25 @@ public class ExecutionConfig implements Serializable, Archiveable<ArchivedExecut
 
 	/**
 	 * Configuration settings for the closure cleaner.
+	 * closure cleaner的配置设置。
 	 */
 	public enum ClosureCleanerLevel {
 		/**
 		 * Disable the closure cleaner completely.
 		 */
+		// 完全禁用关闭清理器。
 		NONE,
 
 		/**
 		 * Clean only the top-level class without recursing into fields.
 		 */
+		// 只清理顶级类，而不递归到字段中。
 		TOP_LEVEL,
 
 		/**
 		 * Clean all the fields recursively.
 		 */
+		// 递归地清除所有字段。
 		RECURSIVE
 	}
 

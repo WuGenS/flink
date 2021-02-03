@@ -24,12 +24,14 @@ import org.apache.flink.streaming.runtime.streamstatus.StreamStatus;
 
 /**
  * An element in a data stream. Can be a record or a Watermark.
+ * 数据流中的一种元素。可以是记录或水印。
  */
 @Internal
 public abstract class StreamElement {
 
 	/**
 	 * Checks whether this element is a watermark.
+	 * 判断是否是Watermark
 	 * @return True, if this element is a watermark, false otherwise.
 	 */
 	public final boolean isWatermark() {
@@ -53,8 +55,8 @@ public abstract class StreamElement {
 	}
 
 	/**
-	 * Checks whether this element is a latency marker.
-	 * @return True, if this element is a latency marker, false otherwise.
+	 * Checks whether this element is a latency marker. 检查此元素是否为延迟标记
+	 * @return True, if this element is a latency marker, false otherwise. 如果该元素是一个延迟标记，则为True，否则为false。
 	 */
 	public final boolean isLatencyMarker() {
 		return getClass() == LatencyMarker.class;

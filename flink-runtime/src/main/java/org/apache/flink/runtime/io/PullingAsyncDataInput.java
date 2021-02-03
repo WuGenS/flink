@@ -24,12 +24,13 @@ import java.util.concurrent.CompletableFuture;
 
 /**
  * Interface defining couple of essential methods for asynchronous and non blocking data polling.
- *
+ * 接口定义了一对用于异步和非阻塞数据轮询的基本方法。
  * <p>For the most efficient usage, user of this class is supposed to call {@link #pollNext()}
  * until it returns that no more elements are available. If that happens, he should check if
  * input {@link #isFinished()}. If not, he should wait for {@link #getAvailableFuture()}
  * {@link CompletableFuture} to be completed. For example:
- *
+ * <p>为了最有效的使用，这个类的用户应该调用pollNext()，直到它返回没有更多的元素可用为止。如果出现这种情况，他应该检查输入是否已完成()。
+ * 如果没有，他应该等待getAvailableFuture()被完成。例如:</p>
  * <pre>
  * {@code
  *	AsyncDataInput<T> input = ...;

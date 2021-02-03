@@ -23,6 +23,7 @@ import org.apache.flink.streaming.runtime.streamrecord.StreamRecord;
 
 /**
  * A {@link StreamOperator} for executing {@link MapFunction MapFunctions}.
+ * 用于执行MapFunction的StreamOperator。
  */
 @Internal
 public class StreamMap<IN, OUT>

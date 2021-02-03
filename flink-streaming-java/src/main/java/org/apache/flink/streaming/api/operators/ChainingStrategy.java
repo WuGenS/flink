@@ -24,10 +24,16 @@ import org.apache.flink.annotation.PublicEvolving;
  * Defines the chaining scheme for the operator. When an operator is chained to the
  * predecessor, it means that they run in the same thread. They become one operator
  * consisting of multiple steps.
- *
+ * <p>定义操作符的链接模式。当一个操作符被链接到前一个操作符时，
+ * 这意味着它们在同一个线程中运行。它们成为一个由多个步骤组成的操作符。</p>
  * <p>The default value used by the StreamOperator is {@link #HEAD}, which means that
  * the operator is not chained to its predecessor. Most operators override this with
  * {@link #ALWAYS}, meaning they will be chained to predecessors whenever possible.
+ * <p>
+ *     StreamOperator使用的默认值是HEAD，这意味着该操作符没有链接到其前身。
+ *     大多数操作符都用ALWAYS覆盖了这个值，这意味着它们将尽可能地与前辈连接在一起。
+ * </p>
+ *
  */
 @PublicEvolving
 public enum ChainingStrategy {
@@ -43,6 +49,7 @@ public enum ChainingStrategy {
 	/**
 	 * The operator will not be chained to the preceding or succeeding operators.
 	 */
+	// 操作符不会被链接到前面或后面的操作符。
 	NEVER,
 
 	/**

@@ -30,7 +30,8 @@ import org.apache.flink.util.OutputTag;
  * the timestamp that should be attached to emitted elements. Most operators
  * would set the timestamp of the incoming
  * {@link org.apache.flink.streaming.runtime.streamrecord.StreamRecord} here.
- *
+ * Output的包装器类，用于给元素设置时间戳，
+ *  * 大多数算子（operators）会在此处设置传入StreamRecord的时间戳。
  * @param <T> The type of the elements that can be emitted.
  */
 @Internal

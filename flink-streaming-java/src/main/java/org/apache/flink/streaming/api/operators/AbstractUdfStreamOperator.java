@@ -40,7 +40,7 @@ import static java.util.Objects.requireNonNull;
  * This is used as the base class for operators that have a user-defined
  * function. This class handles the opening and closing of the user-defined functions,
  * as part of the operator life cycle.
- *
+ * 它用作具有用户定义函数的操作符的基类。该类处理用户定义函数的打开和关闭，作为操作符生命周期的一部分。
  * @param <OUT>
  *            The output type of the operator
  * @param <F>

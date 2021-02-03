@@ -38,9 +38,10 @@ import java.util.Map;
  * An entity keeping all the time-related services available to all operators extending the
  * {@link AbstractStreamOperator}. Right now, this is only a
  * {@link InternalTimerServiceImpl timer services}.
- *
+ * 一个实体，为扩展AbstractStreamOperator的所有操作符提供所有与时间相关的服务。
+ * 现在，这只是一个定时器服务
  * <b>NOTE:</b> These services are only available to keyed operators.
- *
+ * NOTE:这些服务仅适用于keyed算子。
  * @param <K> The type of keys used for the timers and the registry.
  */
 @Internal

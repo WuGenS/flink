@@ -27,7 +27,7 @@ import org.apache.flink.streaming.runtime.streamrecord.StreamRecord;
  * Interface for stream operators with one input. Use
  * {@link org.apache.flink.streaming.api.operators.AbstractStreamOperator} as a base class if
  * you want to implement a custom operator.
- *
+ * 一个输入流操作符的接口。如果要实现自定义操作符，则使用AbstractStreamOperator作为基类。
  * @param <IN> The input type of the operator
  * @param <OUT> The output type of the operator
  */
@@ -38,12 +38,13 @@ public interface OneInputStreamOperator<IN, OUT> extends StreamOperator<OUT> {
 	 * Processes one element that arrived at this operator.
 	 * This method is guaranteed to not be called concurrently with other methods of the operator.
 	 */
+	// 处理到达这个操作符的一个元素。此方法保证不会与运算符的其他方法同时调用。
 	void processElement(StreamRecord<IN> element) throws Exception;
 
 	/**
 	 * Processes a {@link Watermark}.
 	 * This method is guaranteed to not be called concurrently with other methods of the operator.
-	 *
+	 * 处理一个水印。此方法保证不会与运算符的其他方法同时调用。
 	 * @see org.apache.flink.streaming.api.watermark.Watermark
 	 */
 	void processWatermark(Watermark mark) throws Exception;

@@ -24,6 +24,7 @@ import java.util.concurrent.CompletableFuture;
 /**
  * Interface defining couple of essential methods for listening on data availability using
  * {@link CompletableFuture}. For usage check out for example {@link PullingAsyncDataInput}.
+ * <p>接口定义了使用CompletableFuture侦听数据可用性的几种基本方法。 有关用法，请查看例如PullingAsyncDataInput。 </p>
  */
 @Internal
 public interface AvailabilityProvider {

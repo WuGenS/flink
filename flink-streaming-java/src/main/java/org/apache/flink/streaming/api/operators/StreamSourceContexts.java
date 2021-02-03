@@ -31,12 +31,14 @@ import java.util.concurrent.ScheduledFuture;
 
 /**
  * Source contexts for various stream time characteristics.
+ * 用来获取不同流时间特征的源上下文。
  */
 public class StreamSourceContexts {
 
 	/**
 	 * Depending on the {@link TimeCharacteristic}, this method will return the adequate
 	 * {@link org.apache.flink.streaming.api.functions.source.SourceFunction.SourceContext}. That is:
+	 * <p>根据TimeCharacteristic的值，该方法将返回适当的SourceContext</p>
 	 * <ul>
 	 *     <li>{@link TimeCharacteristic#IngestionTime} = {@code AutomaticWatermarkContext}</li>
 	 *     <li>{@link TimeCharacteristic#ProcessingTime} = {@code NonTimestampContext}</li>
@@ -55,6 +57,7 @@ public class StreamSourceContexts {
 		final SourceFunction.SourceContext<OUT> ctx;
 		switch (timeCharacteristic) {
 			case EventTime:
+				// 针对EventTime的人工发射watermark的SourceContext
 				ctx = new ManualWatermarkContext<>(
 					output,
 					processingTimeService,
@@ -74,6 +77,7 @@ public class StreamSourceContexts {
 
 				break;
 			case ProcessingTime:
+				// 针对ProcessingTime，该SourceContext将时间戳设置为-1，并且不发射watermark
 				ctx = new NonTimestampContext<>(checkpointLock, output);
 				break;
 			default:
@@ -85,6 +89,7 @@ public class StreamSourceContexts {
 	/**
 	 * A source context that attached {@code -1} as a timestamp to all records, and that
 	 * does not forward watermarks.
+	 * 一种SourceContext，他将时间戳设置为-1，并且不发射watermark
 	 */
 	private static class NonTimestampContext<T> implements SourceFunction.SourceContext<T> {
 
@@ -133,6 +138,7 @@ public class StreamSourceContexts {
 	/**
 	 * {@link SourceFunction.SourceContext} to be used for sources with automatic timestamps
 	 * and watermark emission.
+	 * 提供自动的watermark发射机制的SourceContext
 	 */
 	private static class AutomaticWatermarkContext<T> extends WatermarkContext<T> {
 
@@ -278,9 +284,11 @@ public class StreamSourceContexts {
 	 * A SourceContext for event time. Sources may directly attach timestamps and generate
 	 * watermarks, but if records are emitted without timestamps, no timestamps are automatically
 	 * generated and attached. The records will simply have no timestamp in that case.
-	 *
+	 * 事件时间的SourceContext。 数据源产生处可以直接附加时间戳并生成水印，
+	 * 但是如果在没有时间戳的情况下发送记录，则不会自动生成并附加时间戳。 在这种情况下，记录将没有时间戳记。
 	 * <p>Streaming topologies can use timestamp assigner functions to override the timestamps
 	 * assigned here.
+	 * <p>流拓扑可以使用时间戳分配器函数来覆盖这里分配的时间戳。</p>
 	 */
 	private static class ManualWatermarkContext<T> extends WatermarkContext<T> {
 

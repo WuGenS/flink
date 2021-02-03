@@ -109,7 +109,7 @@ import java.util.List;
  * <li>{@link DataStream#map}
  * <li>{@link DataStream#filter}
  * </ul>
- *
+ * DataStream表示相同类型的元素流。一个DataStream可以通过应用转换转换成另一个DataStream
  * @param <T> The type of the elements in this stream.
  */
 @Public
@@ -181,7 +181,7 @@ public class DataStream<T> {
 	/**
 	 * Invokes the {@link org.apache.flink.api.java.ClosureCleaner}
 	 * on the given function if closure cleaning is enabled in the {@link ExecutionConfig}.
-	 *
+	 * 在给定的函数上调用ClosureCleaner，如果在ExecutionConfig中启用了闭包清理。
 	 * @return The cleaned Function
 	 */
 	protected <F> F clean(F f) {
@@ -896,13 +896,14 @@ public class DataStream<T> {
 	/**
 	 * Assigns timestamps to the elements in the data stream and periodically creates
 	 * watermarks to signal event time progress.
-	 *
+	 * <p>给数据流中的元素分配时间戳，并定期创建水印以标记事件时间进度。
 	 * <p>This method creates watermarks periodically (for example every second), based
 	 * on the watermarks indicated by the given watermark generator. Even when no new elements
 	 * in the stream arrive, the given watermark generator will be periodically checked for
 	 * new watermarks. The interval in which watermarks are generated is defined in
 	 * {@link ExecutionConfig#setAutoWatermarkInterval(long)}.
-	 *
+	 * <p>该方法基于给定的水印生成器所指示的水印周期性地(例如每秒钟)创建水印。即使流中没有新元素到达，给定的水印生成器也将定期检查是否有新水印。
+	 * ExecutionConfig.setAutoWatermarkInterval(long)中设置水印生成的时间间隔
 	 * <p>Use this method for the common cases, where some characteristic over all elements
 	 * should generate the watermarks, or where watermarks are simply trailing behind the
 	 * wall clock time by a certain amount.
@@ -918,7 +919,9 @@ public class DataStream<T> {
 	 *
 	 * @param timestampAndWatermarkAssigner The implementation of the timestamp assigner and
 	 *                                      watermark generator.
+	 *                                      时间戳水印生成器。
 	 * @return The stream after the transformation, with assigned timestamps and watermarks.
+	 * 转换后的流，带有指定的时间戳和水印。
 	 *
 	 * @see AssignerWithPeriodicWatermarks
 	 * @see AssignerWithPunctuatedWatermarks
@@ -930,9 +933,11 @@ public class DataStream<T> {
 		// match parallelism to input, otherwise dop=1 sources could lead to some strange
 		// behaviour: the watermark will creep along very slowly because the elements
 		// from the source go to each extraction operator round robin.
+		// //匹配输入的并行性，否则dop=1源可能导致一些奇怪的行为:水印将爬行非常缓慢，因为元素从source到一系列提取操作符。
 		final int inputParallelism = getTransformation().getParallelism();
 		final AssignerWithPeriodicWatermarks<T> cleanedAssigner = clean(timestampAndWatermarkAssigner);
 
+		// 继承了AbstractUdfStreamOperator，实现了OneInputStreamOperator接口与ProcessingTimeCallback接口
 		TimestampsAndPeriodicWatermarksOperator<T> operator =
 				new TimestampsAndPeriodicWatermarksOperator<>(cleanedAssigner);
 

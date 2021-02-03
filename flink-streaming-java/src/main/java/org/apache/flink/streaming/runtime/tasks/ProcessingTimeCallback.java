@@ -23,6 +23,7 @@ import org.apache.flink.annotation.Internal;
 /**
  * Interface for processing-time callbacks that can be registered at a
  * {@link ProcessingTimeService}.
+ * 处理时间回调的接口，可以在ProcessingTimeService中注册。
  */
 @Internal
 public interface ProcessingTimeCallback {

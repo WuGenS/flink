@@ -33,16 +33,20 @@ import java.io.Serializable;
 /**
  * A {@code Trigger} determines when a pane of a window should be evaluated to emit the
  * results for that part of the window.
- *
+ * 触发器确定何时应该对窗口的一个窗格进行计算，以发出窗口那部分的结果。
  * <p>A pane is the bucket of elements that have the same key (assigned by the
  * {@link org.apache.flink.api.java.functions.KeySelector}) and same {@link Window}. An element can
  * be in multiple panes if it was assigned to multiple windows by the
  * {@link org.apache.flink.streaming.api.windowing.assigners.WindowAssigner}. These panes all
  * have their own instance of the {@code Trigger}.
- *
+ * 一个窗格是拥有相同键（由KeySelector分配）和相同窗口的元素桶，如果一个元素被WindowAssigner分配给多个窗口，那么它可以在多个窗格中，这些
+ * 窗格拥有他们自己的Trigger实例
  * <p>Triggers must not maintain state internally since they can be re-created or reused for
  * different keys. All necessary state should be persisted using the state abstraction
  * available on the {@link TriggerContext}.
+ *触发器不能在内部维护状态，因为它们可以为不同的键重新创建或重用。
+ * 所有必要的状态都应该使用Trigger.TriggerContext上可用的状态抽象来持久化。
+ *
  *
  * <p>When used with a {@link org.apache.flink.streaming.api.windowing.assigners.MergingWindowAssigner}
  * the {@code Trigger} must return {@code true} from {@link #canMerge()} and
@@ -59,9 +63,9 @@ public abstract class Trigger<T, W extends Window> implements Serializable {
 	/**
 	 * Called for every element that gets added to a pane. The result of this will determine
 	 * whether the pane is evaluated to emit results.
-	 *
+	 * 每个添加到窗格中的元素都会调用。此结果将决定是否对窗格进行计算以产生结果
 	 * @param element The element that arrived.
-	 * @param timestamp The timestamp of the element that arrived.
+	 * @param timestamp The timestamp of the element that arrived. 元素到达的时间，如果是事件时间，则是用户自定义的一个时间戳
 	 * @param window The window to which the element is being added.
 	 * @param ctx A context object that can be used to register timer callbacks.
 	 */
@@ -69,7 +73,7 @@ public abstract class Trigger<T, W extends Window> implements Serializable {
 
 	/**
 	 * Called when a processing-time timer that was set using the trigger context fires.
-	 *
+	 * 当使用触发器上下文设置的处理时间计时器触发时调用。
 	 * @param time The timestamp at which the timer fired.
 	 * @param window The window for which the timer fired.
 	 * @param ctx A context object that can be used to register timer callbacks.
@@ -78,7 +82,7 @@ public abstract class Trigger<T, W extends Window> implements Serializable {
 
 	/**
 	 * Called when an event-time timer that was set using the trigger context fires.
-	 *
+	 * 当使用触发器上下文设置的事件时间计时器触发时调用
 	 * @param time The timestamp at which the timer fired.
 	 * @param window The window for which the timer fired.
 	 * @param ctx A context object that can be used to register timer callbacks.
@@ -89,7 +93,7 @@ public abstract class Trigger<T, W extends Window> implements Serializable {
 	 * Returns true if this trigger supports merging of trigger state and can therefore
 	 * be used with a
 	 * {@link org.apache.flink.streaming.api.windowing.assigners.MergingWindowAssigner}.
-	 *
+	 * 如果该触发器支持合并触发器状态，并因此可以与mergingwindowassigner一起使用，则返回true。
 	 * <p>If this returns {@code true} you must properly implement
 	 * {@link #onMerge(Window, OnMergeContext)}
 	 */
@@ -100,7 +104,7 @@ public abstract class Trigger<T, W extends Window> implements Serializable {
 	/**
 	 * Called when several windows have been merged into one window by the
 	 * {@link org.apache.flink.streaming.api.windowing.assigners.WindowAssigner}.
-	 *
+	 * 当几个窗口被合并成一个窗口时调用。
 	 * @param window The new window that results from the merge.
 	 * @param ctx A context object that can be used to register timer callbacks and access state.
 	 */
@@ -113,6 +117,12 @@ public abstract class Trigger<T, W extends Window> implements Serializable {
 	 * when a window is purged. Timers set using {@link TriggerContext#registerEventTimeTimer(long)}
 	 * and {@link TriggerContext#registerProcessingTimeTimer(long)} should be deleted here as
 	 * well as state acquired using {@link TriggerContext#getPartitionedState(StateDescriptor)}.
+	 *
+	 *	清除给定窗口的触发器状态：
+	 *  1.通过Trigger.TriggerContext.registerEventTimeTimer(long)和 Trigger.TriggerContext.registerProcessingTimeTimer(long)注册的定时器
+	 *  2.使用Trigger.TriggerContext.getPartitionedState(StateDescriptor)获取的状态
+	 * 	窗口被清除时调用
+	 *
 	 */
 	public abstract void clear(W window, TriggerContext ctx) throws Exception;
 
@@ -154,6 +164,7 @@ public abstract class Trigger<T, W extends Window> implements Serializable {
 		void registerProcessingTimeTimer(long time);
 
 		/**
+		 * 注册一个事件时间的计时器回调。当当前的水印达到特定的时间时，Trigger#onEventTime(long, Window, TriggerContext)在这里被调用
 		 * Register an event-time callback. When the current watermark passes the specified
 		 * time {@link Trigger#onEventTime(long, Window, TriggerContext)} is called with the time specified here.
 		 *
@@ -177,8 +188,10 @@ public abstract class Trigger<T, W extends Window> implements Serializable {
 		 * fault-tolerant state that is scoped to the window and key of the current
 		 * trigger invocation.
 		 *
+		 * 检索一个状态对象，该状态对象可用于与范围限定在当前触发器调用的窗口和键上的容错状态交互。
 		 * @param stateDescriptor The StateDescriptor that contains the name and type of the
 		 *                        state that is being accessed.
+		 *                        包含被访问状态的名称和类型的状态描述符。
 		 * @param <S>             The type of the state.
 		 * @return The partitioned state object.
 		 * @throws UnsupportedOperationException Thrown, if no partitioned state is available for the

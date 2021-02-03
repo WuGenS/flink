@@ -32,7 +32,13 @@ import static org.apache.flink.util.Preconditions.checkNotNull;
  * downstream outputs, given a set of one or multiple input channels that continuously receive them. Usages of this
  * class need to define the number of input channels that the valve needs to handle, as well as provide a implementation of
  * {@link DataOutput}, which is called by the valve only when it determines a new watermark or stream status can be propagated.
+ * <p>在给定一个或多个连续接收输入通道的输入通道的集合的情况下，
+ * StatusWatermarkValve体现了如何将Watermark和StreamStatus传播到下游输出的逻辑。
+ * 此类的用法需要定义value需要处理的输入通道的数量，
+ * 并提供org.apache.flink.streaming.runtime.io.PushingAsyncDataInput.DataOutput的实现，
+ * 仅当value在以下情况下调用 它确定可以传播新的水印或流状态。 </p>
  */
+
 @Internal
 public class StatusWatermarkValve {
 
@@ -98,6 +104,7 @@ public class StatusWatermarkValve {
 				}
 
 				// now, attempt to find a new min watermark across all aligned channels
+				// 现在，尝试在所有对齐的通道中找到一个新的最小水印
 				findAndOutputNewMinWatermarkAcrossAlignedChannels();
 			}
 		}
@@ -165,7 +172,9 @@ public class StatusWatermarkValve {
 		boolean hasAlignedChannels = false;
 
 		// determine new overall watermark by considering only watermark-aligned channels across all channels
+		// 通过只考虑所有通道中与水印对齐的通道来确定新的整体水印
 		for (InputChannelStatus channelStatus : channelStatuses) {
+			// 判断水印是否对齐
 			if (channelStatus.isWatermarkAligned) {
 				hasAlignedChannels = true;
 				newMinWatermark = Math.min(channelStatus.watermark, newMinWatermark);
@@ -174,6 +183,7 @@ public class StatusWatermarkValve {
 
 		// we acknowledge and output the new overall watermark if it really is aggregated
 		// from some remaining aligned channel, and is also larger than the last output watermark
+		// 我们确认并输出新的整体水印（如果它确实是从剩余的对齐通道中汇总而来的，并且也大于上一个输出的水印）
 		if (hasAlignedChannels && newMinWatermark > lastOutputWatermark) {
 			lastOutputWatermark = newMinWatermark;
 			output.emitWatermark(new Watermark(lastOutputWatermark));

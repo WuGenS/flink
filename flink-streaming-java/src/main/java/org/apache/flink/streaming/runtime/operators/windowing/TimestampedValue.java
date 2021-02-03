@@ -23,7 +23,7 @@ import org.apache.flink.streaming.runtime.streamrecord.StreamRecord;
 
 /**
  * Stores the value and the timestamp of the record.
- *
+ * 存储记录的值和时间戳。
  * @param <T> The type encapsulated value
  */
 @PublicEvolving
@@ -67,14 +67,14 @@ public class TimestampedValue<T> {
 
 	/**
 	 * @return The timestamp associated with this stream value in milliseconds.
-     */
+	 */
 	public long getTimestamp() {
 		if (hasTimestamp) {
 			return timestamp;
 		} else {
 			throw new IllegalStateException(
-					"Record has no timestamp. Is the time characteristic set to 'ProcessingTime', or " +
-							"did you forget to call 'DataStream.assignTimestampsAndWatermarks(...)'?");
+				"Record has no timestamp. Is the time characteristic set to 'ProcessingTime', or " +
+					"did you forget to call 'DataStream.assignTimestampsAndWatermarks(...)'?");
 		}
 	}
 
@@ -89,7 +89,7 @@ public class TimestampedValue<T> {
 
 	/**
 	 * Creates a {@link StreamRecord} from this TimestampedValue.
-     */
+	 */
 	public StreamRecord<T> getStreamRecord() {
 		StreamRecord<T> streamRecord = new StreamRecord<>(value);
 		if (hasTimestamp) {
@@ -102,7 +102,7 @@ public class TimestampedValue<T> {
 	 * Creates a TimestampedValue from given {@link StreamRecord}.
 	 *
 	 * @param streamRecord The StreamRecord object from which TimestampedValue is to be created.
-     */
+	 */
 	public static <T> TimestampedValue<T> from(StreamRecord<T> streamRecord) {
 		if (streamRecord.hasTimestamp()) {
 			return new TimestampedValue<>(streamRecord.getValue(), streamRecord.getTimestamp());

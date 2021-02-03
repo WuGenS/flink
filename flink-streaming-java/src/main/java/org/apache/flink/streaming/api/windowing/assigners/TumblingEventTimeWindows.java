@@ -33,7 +33,7 @@ import java.util.Collections;
 /**
  * A {@link WindowAssigner} that windows elements into windows based on the timestamp of the
  * elements. Windows cannot overlap.
- *
+ * 一个窗口不能重叠的窗口分配器.基于事件时间戳将不同的元素分配给不同的窗口,每个窗口的开始结束时间不会有重叠，即一个元素只会出现在一个窗口
  * <p>For example, in order to window into windows of 1 minute:
  * <pre> {@code
  * DataStream<Tuple2<String, Integer>> in = ...;
@@ -59,6 +59,7 @@ public class TumblingEventTimeWindows extends WindowAssigner<Object, TimeWindow>
 		this.offset = offset;
 	}
 
+	// 分配每个元素到指定窗口的具体逻辑,返回只有一个TimeWindow的集合
 	@Override
 	public Collection<TimeWindow> assignWindows(Object element, long timestamp, WindowAssignerContext context) {
 		if (timestamp > Long.MIN_VALUE) {
@@ -67,11 +68,12 @@ public class TumblingEventTimeWindows extends WindowAssigner<Object, TimeWindow>
 			return Collections.singletonList(new TimeWindow(start, start + size));
 		} else {
 			throw new RuntimeException("Record has Long.MIN_VALUE timestamp (= no timestamp marker). " +
-					"Is the time characteristic set to 'ProcessingTime', or did you forget to call " +
-					"'DataStream.assignTimestampsAndWatermarks(...)'?");
+				"Is the time characteristic set to 'ProcessingTime', or did you forget to call " +
+				"'DataStream.assignTimestampsAndWatermarks(...)'?");
 		}
 	}
 
+	// 获取默认的窗口触发器
 	@Override
 	public Trigger<Object, TimeWindow> getDefaultTrigger(StreamExecutionEnvironment env) {
 		return EventTimeTrigger.create();
@@ -86,6 +88,8 @@ public class TumblingEventTimeWindows extends WindowAssigner<Object, TimeWindow>
 	 * Creates a new {@code TumblingEventTimeWindows} {@link WindowAssigner} that assigns
 	 * elements to time windows based on the element timestamp.
 	 *
+	 *
+	 *
 	 * @param size The size of the generated windows.
 	 * @return The time policy.
 	 */
@@ -96,6 +100,7 @@ public class TumblingEventTimeWindows extends WindowAssigner<Object, TimeWindow>
 	/**
 	 * Creates a new {@code TumblingEventTimeWindows} {@link WindowAssigner} that assigns
 	 * elements to time windows based on the element timestamp and offset.
+	 * 创建一个基于事件元素的时间戳和窗口偏移量的新的窗口分配器，该类没有提供公众构造器，只有通过该方式，去创建一个窗口分配器
 	 *
 	 * <p>For example, if you want window a stream by hour,but window begins at the 15th minutes
 	 * of each hour, you can use {@code of(Time.hours(1),Time.minutes(15))},then you will get
@@ -106,14 +111,16 @@ public class TumblingEventTimeWindows extends WindowAssigner<Object, TimeWindow>
 	 * and window begins at every 00:00:00 of local time,you may use {@code of(Time.days(1),Time.hours(-8))}.
 	 * The parameter of offset is {@code Time.hours(-8))} since UTC+08:00 is 8 hours earlier than UTC time.
 	 *
-	 * @param size The size of the generated windows.
-	 * @param offset The offset which window start would be shifted by.
+	 * @param size The size of the generated windows. 生成窗口的大小
+	 * @param offset The offset which window start would be shifted by. 窗口的偏移量
 	 * @return The time policy.
 	 */
 	public static TumblingEventTimeWindows of(Time size, Time offset) {
 		return new TumblingEventTimeWindows(size.toMilliseconds(), offset.toMilliseconds());
 	}
 
+
+	// 获取一个窗口元素的类型序列化器
 	@Override
 	public TypeSerializer<TimeWindow> getWindowSerializer(ExecutionConfig executionConfig) {
 		return new TimeWindow.Serializer();

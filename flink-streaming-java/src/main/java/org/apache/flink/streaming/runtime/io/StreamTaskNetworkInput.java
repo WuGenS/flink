@@ -46,15 +46,18 @@ import static org.apache.flink.util.Preconditions.checkState;
 
 /**
  * Implementation of {@link StreamTaskInput} that wraps an input from network taken from {@link CheckpointedInputGate}.
- *
+ * <p>StreamTaskInput的实现，该实现包装来自CheckpointedInputGate的网络输入。 </p>
  * <p>This internally uses a {@link StatusWatermarkValve} to keep track of {@link Watermark} and
  * {@link StreamStatus} events, and forwards them to event subscribers once the
  * {@link StatusWatermarkValve} determines the {@link Watermark} from all inputs has advanced, or
  * that a {@link StreamStatus} needs to be propagated downstream to denote a status change.
- *
+ * <p>这在内部使用StatusWatermarkValve来跟踪水印和StreamStatus事件，
+ * 并在StatusWatermarkValve确定所有输入中的水印已超前或需要将StreamStatus传播到下游以表示状态更改后，将它们转发给事件订阅者。
  * <p>Forwarding elements, watermarks, or status status elements must be protected by synchronizing
  * on the given lock object. This ensures that we don't call methods on a
  * {@link StreamInputProcessor} concurrently with the timer callback or other things.
+ * <p>转发元素，水印或状态状态元素必须通过在给定的锁定对象上进行同步来保护。
+ * 这确保了我们不会与计时器回调或其他事件同时调用StreamInputProcessor上的方法。 </p>
  */
 @Internal
 public final class StreamTaskNetworkInput<T> implements StreamTaskInput<T> {

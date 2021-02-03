@@ -26,6 +26,7 @@ import org.apache.flink.configuration.Configuration;
 
 /**
  * Utility class that contains helper methods to work with Flink {@link Function} class.
+ * 包含与Flink函数类一起工作的助手方法的实用程序类。
  */
 @Internal
 public final class FunctionUtils {
@@ -33,6 +34,7 @@ public final class FunctionUtils {
 	public static void openFunction(Function function, Configuration parameters) throws Exception{
 		if (function instanceof RichFunction) {
 			RichFunction richFunction = (RichFunction) function;
+			// 调用open方法
 			richFunction.open(parameters);
 		}
 	}

@@ -54,8 +54,8 @@ public enum TriggerResult {
 
 	// ------------------------------------------------------------------------
 
-	private final boolean fire;
-	private final boolean purge;
+	private final boolean fire;   //  是否计算
+	private final boolean purge; // 是否清除
 
 	TriggerResult(boolean fire, boolean purge) {
 		this.purge = purge;

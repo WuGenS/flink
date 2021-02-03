@@ -23,6 +23,7 @@ import java.io.Closeable;
 
 /**
  * Basic interface for inputs of stream operators.
+ * 流操作符输入的基本接口。
  */
 @Internal
 public interface StreamTaskInput<T> extends PushingAsyncDataInput<T>, Closeable {

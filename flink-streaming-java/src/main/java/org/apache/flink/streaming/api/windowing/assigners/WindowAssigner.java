@@ -30,13 +30,14 @@ import java.util.Collection;
 
 /**
  * A {@code WindowAssigner} assigns zero or more {@link Window Windows} to an element.
- *
+ * WindowAssigner给一个元素分配0个或多个窗口.
  * <p>In a window operation, elements are grouped by their key (if available) and by the windows to
  * which it was assigned. The set of elements with the same key and window is called a pane.
  * When a {@link Trigger} decides that a certain pane should fire the
  * {@link org.apache.flink.streaming.api.functions.windowing.WindowFunction} is applied
  * to produce output elements for that pane.
- *
+ * 在窗口操作中，元素按键(如果可用)和它被分配的窗口分组。具有相同键和窗口的元素集合称为窗格。
+ * 当一个触发器决定一个窗格应该被触发时，WindowFunction被作用于该窗格生成输出元素
  * @param <T> The type of elements that this WindowAssigner can assign windows to.
  * @param <W> The type of {@code Window} that this assigner assigns.
  */
@@ -46,7 +47,7 @@ public abstract class WindowAssigner<T, W extends Window> implements Serializabl
 
 	/**
 	 * Returns a {@code Collection} of windows that should be assigned to the element.
-	 *
+	 * 返回应该分配给元素的窗口集合。
 	 * @param element The element to which windows should be assigned.
 	 * @param timestamp The timestamp of the element.
 	 * @param context The {@link WindowAssignerContext} in which the assigner operates.
@@ -73,7 +74,7 @@ public abstract class WindowAssigner<T, W extends Window> implements Serializabl
 	/**
 	 * A context provided to the {@link WindowAssigner} that allows it to query the
 	 * current processing time.
-	 *
+	 * <p>提供给WindowAssigner的上下文，允许它查询当前处理时间。</p>
 	 * <p>This is provided to the assigner by its containing
 	 * {@link org.apache.flink.streaming.runtime.operators.windowing.WindowOperator},
 	 * which, in turn, gets it from the containing

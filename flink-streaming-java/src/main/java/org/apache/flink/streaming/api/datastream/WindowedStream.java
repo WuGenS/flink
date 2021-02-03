@@ -153,6 +153,9 @@ public class WindowedStream<T, K, W extends Window> {
 	 * By default, the allowed lateness is {@code 0L}.
 	 *
 	 * <p>Setting an allowed lateness is only valid for event-time windows.
+	 *
+	 * 设置允许元素延迟的时间。到达水印后超过指定时间的元素将被删除。缺省情况下，允许的延迟时间为0L。
+	 * 设置允许的延迟时间仅对事件时间窗口有效。
 	 */
 	@PublicEvolving
 	public WindowedStream<T, K, W> allowedLateness(Time lateness) {

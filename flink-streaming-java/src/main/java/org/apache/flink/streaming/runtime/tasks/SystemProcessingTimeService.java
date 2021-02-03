@@ -291,6 +291,7 @@ public class SystemProcessingTimeService implements TimerService {
 				return;
 			}
 			try {
+				// 当系统时间到达注册的定时器的时间时，调用回调参数的onProcessingTime方法
 				callback.onProcessingTime(nextTimestamp);
 			} catch (Exception ex) {
 				exceptionHandler.handleException(ex);

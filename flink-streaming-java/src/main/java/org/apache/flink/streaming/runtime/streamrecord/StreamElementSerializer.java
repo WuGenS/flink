@@ -40,7 +40,8 @@ import static java.util.Objects.requireNonNull;
  *
  * <p>This does not behave like a normal {@link TypeSerializer}, instead, this is only used at the
  * stream task/operator level for transmitting StreamRecords and Watermarks.
- *
+ * 用于StreamRecord、水印、LatencyMarker和StreamStatus的序列化器。
+ * 它的行为不像一个普通的类型编译器(TypeSerializer)，相反，它只在流任务/操作符(task/operator)级别用于传输流记录和水印。
  * @param <T> The type of value in the StreamRecord
  */
 @Internal

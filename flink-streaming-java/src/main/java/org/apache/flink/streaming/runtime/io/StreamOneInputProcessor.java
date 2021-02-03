@@ -32,8 +32,8 @@ import static org.apache.flink.util.Preconditions.checkNotNull;
 
 /**
  * Input reader for {@link org.apache.flink.streaming.runtime.tasks.OneInputStreamTask}.
- *
- * @param <IN> The type of the record that can be read with this record reader.
+   <p>OneInputStreamTask的输入阅读器。
+ * @param <IN> The type of the record that can be read with this record reader. 可以使用此记录读取器读取的记录的类型。
  */
 @Internal
 public final class StreamOneInputProcessor<IN> implements StreamInputProcessor {

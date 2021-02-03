@@ -80,15 +80,17 @@ import java.util.Locale;
 /**
  * Base class for all stream operators. Operators that contain a user function should extend the class
  * {@link AbstractUdfStreamOperator} instead (which is a specialized subclass of this class).
- *
+ * 所有流运算符的基类。包含用户功能的运算符应扩展类AbstractUdfStreamOperator（这是此类的专门子类）。
  * <p>For concrete implementations, one of the following two interfaces must also be implemented, to
  * mark the operator as unary or binary:
  * {@link OneInputStreamOperator} or {@link TwoInputStreamOperator}.
+ * <p>对于具体实现，还必须实现以下两个接口之一，
+ * 以将操作符标记为一元或二元:OneInputStreamOperator或twooinputstreamoperator。
  *
  * <p>Methods of {@code StreamOperator} are guaranteed not to be called concurrently. Also, if using
  * the timer service, timer callbacks are also guaranteed not to be called concurrently with
  * methods on {@code StreamOperator}.
- *
+ * 保证不会同时调用StreamOperator的方法。 此外，如果使用计时器服务，还保证不会与StreamOperator上的方法同时调用计时器回调。
  * @param <OUT> The output type of the operator
  */
 @PublicEvolving
@@ -102,16 +104,18 @@ public abstract class AbstractStreamOperator<OUT>
 
 	// ----------- configuration properties -------------
 
-	// A sane default for most operators
+	// A sane default for most operators 这是大多数操作符的默认值
 	protected ChainingStrategy chainingStrategy = ChainingStrategy.HEAD;
 
 	// ---------------- runtime fields ------------------
 
 	/** The task that contains this operator (and other operators in the same chain). */
+	// 包含此操作符(以及同一链中的其他操作符)的任务。
 	private transient StreamTask<?, ?> container;
 
 	protected transient StreamConfig config;
 
+	// 算子的输出句柄
 	protected transient Output<StreamRecord<OUT>> output;
 
 	/** The runtime context for UDFs. */
@@ -122,8 +126,8 @@ public abstract class AbstractStreamOperator<OUT>
 	/**
 	 * {@code KeySelector} for extracting a key from an element being processed. This is used to
 	 * scope keyed state to a key. This is null if the operator is not a keyed operator.
-	 *
-	 * <p>This is for elements from the first input.
+	 * 用于从正在处理的元素中提取键的键选择器。这用于将键控状态限定为一个键。如果操作符不是键控操作符，则为空。
+	 * <p>This is for elements from the first input. 这是用于第一个输入的元素。
 	 */
 	private transient KeySelector<?, ?> stateKeySelector1;
 
@@ -135,9 +139,11 @@ public abstract class AbstractStreamOperator<OUT>
 	 */
 	private transient KeySelector<?, ?> stateKeySelector2;
 
+	// 用户指定的state backend，决定是将状态放在Heap里还是RocksDB里
 	/** Backend for keyed state. This might be empty if we're not on a keyed stream. */
 	private transient AbstractKeyedStateBackend<?> keyedStateBackend;
 
+	// keyedStateStore是在state backend上做一层抽象，使其能通过StateDescriptor直接获取State
 	/** Keyed state store view on the keyed backend. */
 	private transient DefaultKeyedStateStore keyedStateStore;
 
@@ -151,17 +157,21 @@ public abstract class AbstractStreamOperator<OUT>
 	/** Metric group for the operator. */
 	protected transient OperatorMetricGroup metrics;
 
+	// 通过LatencyMarker来获取延时信息。
 	protected transient LatencyStats latencyStats;
 
 	// ---------------- time handler ------------------
 
 	private transient ProcessingTimeService processingTimeService;
+
+	// 提供了定时触发的服务，在状态清理上有很重要的作用。
 	protected transient InternalTimeServiceManager<?> timeServiceManager;
 
 	// ---------------- two-input operator watermarks ------------------
 
 	// We keep track of watermarks from both inputs, the combined input is the minimum
 	// Once the minimum advances we emit a new watermark for downstream operators
+	// 我们跟踪来自两个输入的水印，合并的输入为最小输入。一旦最小输入，我们为下游operators发出新的水印。
 	private long combinedWatermark = Long.MIN_VALUE;
 	private long input1Watermark = Long.MIN_VALUE;
 	private long input2Watermark = Long.MIN_VALUE;
