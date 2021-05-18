@@ -109,7 +109,9 @@ public class CheckpointedInputGate implements PullingAsyncDataInput<BufferOrEven
         while (hasPriorityEvent) {
             // process as many priority events as possible
             final Optional<BufferOrEvent> bufferOrEventOpt = pollNext();
-            checkState(bufferOrEventOpt.isPresent());
+            if (!bufferOrEventOpt.isPresent()) {
+                break;
+            }
             final BufferOrEvent bufferOrEvent = bufferOrEventOpt.get();
             checkState(bufferOrEvent.hasPriority(), "Should only poll priority events");
             hasPriorityEvent = bufferOrEvent.morePriorityEvents();
@@ -171,8 +173,7 @@ public class CheckpointedInputGate implements PullingAsyncDataInput<BufferOrEven
         return next;
     }
 
-    private Optional<BufferOrEvent> handleEvent(BufferOrEvent bufferOrEvent)
-            throws IOException, InterruptedException {
+    private Optional<BufferOrEvent> handleEvent(BufferOrEvent bufferOrEvent) throws IOException {
         Class<? extends AbstractEvent> eventClass = bufferOrEvent.getEvent().getClass();
         if (eventClass == CheckpointBarrier.class) {
             CheckpointBarrier checkpointBarrier = (CheckpointBarrier) bufferOrEvent.getEvent();
@@ -196,9 +197,6 @@ public class CheckpointedInputGate implements PullingAsyncDataInput<BufferOrEven
                     bufferOrEvent.getChannelInfo());
         } else if (bufferOrEvent.getEvent().getClass() == EndOfChannelStateEvent.class) {
             upstreamRecoveryTracker.handleEndOfRecovery(bufferOrEvent.getChannelInfo());
-            if (!upstreamRecoveryTracker.allChannelsRecovered()) {
-                return pollNext();
-            }
         }
         return Optional.of(bufferOrEvent);
     }
@@ -284,6 +282,10 @@ public class CheckpointedInputGate implements PullingAsyncDataInput<BufferOrEven
 
     public List<InputChannelInfo> getChannelInfos() {
         return inputGate.getChannelInfos();
+    }
+
+    public boolean allChannelsRecovered() {
+        return upstreamRecoveryTracker.allChannelsRecovered();
     }
 
     @VisibleForTesting

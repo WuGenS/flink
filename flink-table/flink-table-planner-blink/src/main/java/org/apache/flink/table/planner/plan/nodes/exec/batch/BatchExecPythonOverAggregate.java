@@ -30,10 +30,11 @@ import org.apache.flink.table.functions.python.PythonFunctionInfo;
 import org.apache.flink.table.planner.delegation.PlannerBase;
 import org.apache.flink.table.planner.plan.nodes.exec.ExecEdge;
 import org.apache.flink.table.planner.plan.nodes.exec.ExecNode;
+import org.apache.flink.table.planner.plan.nodes.exec.InputProperty;
+import org.apache.flink.table.planner.plan.nodes.exec.spec.OverSpec;
+import org.apache.flink.table.planner.plan.nodes.exec.spec.PartitionSpec;
+import org.apache.flink.table.planner.plan.nodes.exec.spec.SortSpec;
 import org.apache.flink.table.planner.plan.nodes.exec.utils.CommonPythonUtil;
-import org.apache.flink.table.planner.plan.nodes.exec.utils.OverSpec;
-import org.apache.flink.table.planner.plan.nodes.exec.utils.PartitionSpec;
-import org.apache.flink.table.planner.plan.nodes.exec.utils.SortSpec;
 import org.apache.flink.table.planner.plan.utils.OverAggregateUtil;
 import org.apache.flink.table.runtime.typeutils.InternalTypeInfo;
 import org.apache.flink.table.types.logical.RowType;
@@ -61,8 +62,11 @@ public class BatchExecPythonOverAggregate extends BatchExecOverAggregateBase {
     private final List<Integer> aggWindowIndex;
 
     public BatchExecPythonOverAggregate(
-            OverSpec over, ExecEdge inputEdge, RowType outputType, String description) {
-        super(over, inputEdge, outputType, description);
+            OverSpec overSpec,
+            InputProperty inputProperty,
+            RowType outputType,
+            String description) {
+        super(overSpec, inputProperty, outputType, description);
         lowerBoundary = new ArrayList<>();
         upperBoundary = new ArrayList<>();
         aggCalls = new ArrayList<>();
@@ -72,9 +76,10 @@ public class BatchExecPythonOverAggregate extends BatchExecOverAggregateBase {
     @SuppressWarnings("unchecked")
     @Override
     protected Transformation<RowData> translateToPlanInternal(PlannerBase planner) {
-        final ExecNode<RowData> inputNode = (ExecNode<RowData>) getInputNodes().get(0);
-        final Transformation<RowData> inputTransform = inputNode.translateToPlan(planner);
-        final RowType inputType = (RowType) inputNode.getOutputType();
+        final ExecEdge inputEdge = getInputEdges().get(0);
+        final Transformation<RowData> inputTransform =
+                (Transformation<RowData>) inputEdge.translateToPlan(planner);
+        final RowType inputType = (RowType) inputEdge.getOutputType();
 
         List<OverSpec.GroupSpec> groups = overSpec.getGroups();
         boolean[] isRangeWindows = new boolean[groups.size()];

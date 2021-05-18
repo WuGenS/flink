@@ -20,7 +20,6 @@ package org.apache.flink.table.planner.plan.nodes.exec.batch;
 
 import org.apache.flink.api.dag.Transformation;
 import org.apache.flink.streaming.api.operators.SimpleOperatorFactory;
-import org.apache.flink.streaming.api.transformations.TwoInputTransformation;
 import org.apache.flink.table.api.TableConfig;
 import org.apache.flink.table.api.config.ExecutionConfigOptions;
 import org.apache.flink.table.data.RowData;
@@ -29,10 +28,11 @@ import org.apache.flink.table.planner.codegen.ProjectionCodeGenerator;
 import org.apache.flink.table.planner.codegen.sort.SortCodeGenerator;
 import org.apache.flink.table.planner.delegation.PlannerBase;
 import org.apache.flink.table.planner.plan.nodes.exec.ExecEdge;
-import org.apache.flink.table.planner.plan.nodes.exec.ExecNode;
 import org.apache.flink.table.planner.plan.nodes.exec.ExecNodeBase;
+import org.apache.flink.table.planner.plan.nodes.exec.InputProperty;
+import org.apache.flink.table.planner.plan.nodes.exec.SingleTransformationTranslator;
+import org.apache.flink.table.planner.plan.nodes.exec.spec.SortSpec;
 import org.apache.flink.table.planner.plan.nodes.exec.utils.ExecNodeUtil;
-import org.apache.flink.table.planner.plan.nodes.exec.utils.SortSpec;
 import org.apache.flink.table.planner.plan.utils.JoinUtil;
 import org.apache.flink.table.planner.plan.utils.SortUtil;
 import org.apache.flink.table.runtime.generated.GeneratedJoinCondition;
@@ -54,7 +54,7 @@ import static org.apache.flink.util.Preconditions.checkNotNull;
 
 /** {@link BatchExecNode} for Sort Merge Join. */
 public class BatchExecSortMergeJoin extends ExecNodeBase<RowData>
-        implements BatchExecNode<RowData> {
+        implements BatchExecNode<RowData>, SingleTransformationTranslator<RowData> {
 
     private final FlinkJoinType joinType;
     private final int[] leftKeys;
@@ -70,11 +70,11 @@ public class BatchExecSortMergeJoin extends ExecNodeBase<RowData>
             boolean[] filterNulls,
             @Nullable RexNode nonEquiCondition,
             boolean leftIsSmaller,
-            ExecEdge leftEdge,
-            ExecEdge rightEdge,
+            InputProperty leftInputProperty,
+            InputProperty rightInputProperty,
             RowType outputType,
             String description) {
-        super(Arrays.asList(leftEdge, rightEdge), outputType, description);
+        super(Arrays.asList(leftInputProperty, rightInputProperty), outputType, description);
         this.joinType = checkNotNull(joinType);
         this.leftKeys = checkNotNull(leftKeys);
         this.rightKeys = checkNotNull(rightKeys);
@@ -89,12 +89,12 @@ public class BatchExecSortMergeJoin extends ExecNodeBase<RowData>
     @Override
     @SuppressWarnings("unchecked")
     protected Transformation<RowData> translateToPlanInternal(PlannerBase planner) {
-        ExecNode<RowData> leftInputNode = (ExecNode<RowData>) getInputNodes().get(0);
-        ExecNode<RowData> rightInputNode = (ExecNode<RowData>) getInputNodes().get(1);
+        ExecEdge leftInputEdge = getInputEdges().get(0);
+        ExecEdge rightInputEdge = getInputEdges().get(1);
 
-        // get type
-        RowType leftType = (RowType) leftInputNode.getOutputType();
-        RowType rightType = (RowType) rightInputNode.getOutputType();
+        // get input types
+        RowType leftType = (RowType) leftInputEdge.getOutputType();
+        RowType rightType = (RowType) rightInputEdge.getOutputType();
 
         LogicalType[] keyFieldTypes =
                 IntStream.of(leftKeys).mapToObj(leftType::getTypeAt).toArray(LogicalType[]::new);
@@ -149,23 +149,18 @@ public class BatchExecSortMergeJoin extends ExecNodeBase<RowData>
                                 .generateRecordComparator("KeyComparator"),
                         filterNulls);
 
-        Transformation<RowData> leftInputTransform = leftInputNode.translateToPlan(planner);
-        Transformation<RowData> rightInputTransform = rightInputNode.translateToPlan(planner);
-        TwoInputTransformation<RowData, RowData, RowData> transform =
-                ExecNodeUtil.createTwoInputTransformation(
-                        leftInputTransform,
-                        rightInputTransform,
-                        getDescription(),
-                        SimpleOperatorFactory.of(operator),
-                        InternalTypeInfo.of(getOutputType()),
-                        rightInputTransform.getParallelism(),
-                        managedMemory);
-
-        if (inputsContainSingleton()) {
-            transform.setParallelism(1);
-            transform.setMaxParallelism(1);
-        }
-        return transform;
+        Transformation<RowData> leftInputTransform =
+                (Transformation<RowData>) leftInputEdge.translateToPlan(planner);
+        Transformation<RowData> rightInputTransform =
+                (Transformation<RowData>) rightInputEdge.translateToPlan(planner);
+        return ExecNodeUtil.createTwoInputTransformation(
+                leftInputTransform,
+                rightInputTransform,
+                getDescription(),
+                SimpleOperatorFactory.of(operator),
+                InternalTypeInfo.of(getOutputType()),
+                rightInputTransform.getParallelism(),
+                managedMemory);
     }
 
     private SortCodeGenerator newSortGen(

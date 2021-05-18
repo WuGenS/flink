@@ -20,13 +20,18 @@ package org.apache.flink.table.planner.plan.nodes.physical.stream
 
 import org.apache.flink.table.planner.calcite.FlinkTypeFactory
 import org.apache.flink.table.planner.plan.nodes.exec.ExecNode
+import org.apache.flink.table.planner.plan.nodes.exec.spec.DynamicTableSourceSpec
 import org.apache.flink.table.planner.plan.nodes.exec.stream.StreamExecTableSourceScan
 import org.apache.flink.table.planner.plan.nodes.physical.common.CommonPhysicalTableSourceScan
 import org.apache.flink.table.planner.plan.schema.TableSourceTable
+import org.apache.flink.table.planner.plan.utils.FlinkRelOptUtil
 
 import org.apache.calcite.plan._
 import org.apache.calcite.rel.RelNode
+import org.apache.calcite.rel.hint.RelHint
 import org.apache.calcite.rel.metadata.RelMetadataQuery
+
+import java.util
 
 /**
  * Stream physical RelNode to read data from an external source defined by a
@@ -35,14 +40,15 @@ import org.apache.calcite.rel.metadata.RelMetadataQuery
 class StreamPhysicalTableSourceScan(
     cluster: RelOptCluster,
     traitSet: RelTraitSet,
+    hints: util.List[RelHint],
     tableSourceTable: TableSourceTable)
-  extends CommonPhysicalTableSourceScan(cluster, traitSet, tableSourceTable)
+  extends CommonPhysicalTableSourceScan(cluster, traitSet, hints, tableSourceTable)
   with StreamPhysicalRel {
 
   override def requireWatermark: Boolean = false
 
   override def copy(traitSet: RelTraitSet, inputs: java.util.List[RelNode]): RelNode = {
-    new StreamPhysicalTableSourceScan(cluster, traitSet, tableSourceTable)
+    new StreamPhysicalTableSourceScan(cluster, traitSet, getHints, tableSourceTable)
   }
 
   override def computeSelfCost(planner: RelOptPlanner, mq: RelMetadataQuery): RelOptCost = {
@@ -52,8 +58,16 @@ class StreamPhysicalTableSourceScan(
   }
 
   override def translateToExecNode(): ExecNode[_] = {
+    val tableSourceSpec = new DynamicTableSourceSpec(
+      tableSourceTable.tableIdentifier,
+      tableSourceTable.catalogTable,
+      util.Arrays.asList(tableSourceTable.abilitySpecs: _*))
+    tableSourceSpec.setTableSource(tableSource)
+    val tableConfig = FlinkRelOptUtil.getTableConfigFromContext(this)
+    tableSourceSpec.setReadableConfig(tableConfig.getConfiguration)
+
     new StreamExecTableSourceScan(
-      tableSource,
+      tableSourceSpec,
       FlinkTypeFactory.toLogicalRowType(getRowType),
       getRelDetailedDescription)
   }

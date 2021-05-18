@@ -31,56 +31,66 @@ import org.apache.flink.table.planner.delegation.PlannerBase;
 import org.apache.flink.table.planner.plan.nodes.exec.ExecEdge;
 import org.apache.flink.table.planner.plan.nodes.exec.ExecNode;
 import org.apache.flink.table.planner.plan.nodes.exec.ExecNodeBase;
+import org.apache.flink.table.planner.plan.nodes.exec.InputProperty;
+import org.apache.flink.table.planner.plan.nodes.exec.SingleTransformationTranslator;
 import org.apache.flink.table.planner.plan.nodes.exec.utils.CommonPythonUtil;
 import org.apache.flink.table.runtime.operators.join.FlinkJoinType;
 import org.apache.flink.table.runtime.typeutils.InternalTypeInfo;
 import org.apache.flink.table.types.logical.RowType;
+
+import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.annotation.JsonProperty;
 
 import org.apache.calcite.rex.RexCall;
 import org.apache.calcite.rex.RexInputRef;
 import org.apache.calcite.rex.RexNode;
 
 import java.lang.reflect.Constructor;
-import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.List;
+
+import static org.apache.flink.util.Preconditions.checkArgument;
 
 /** Base {@link ExecNode} which matches along with join a Python user defined table function. */
-public abstract class CommonExecPythonCorrelate extends ExecNodeBase<RowData> {
+@JsonIgnoreProperties(ignoreUnknown = true)
+public abstract class CommonExecPythonCorrelate extends ExecNodeBase<RowData>
+        implements SingleTransformationTranslator<RowData> {
+
+    public static final String FIELD_NAME_JOIN_TYPE = "joinType";
+    public static final String FIELD_NAME_FUNCTION_CALL = "functionCall";
+
     private static final String PYTHON_TABLE_FUNCTION_OPERATOR_NAME =
             "org.apache.flink.table.runtime.operators.python.table.RowDataPythonTableFunctionOperator";
 
+    @JsonProperty(FIELD_NAME_JOIN_TYPE)
     private final FlinkJoinType joinType;
+
+    @JsonProperty(FIELD_NAME_FUNCTION_CALL)
     private final RexCall invocation;
 
     public CommonExecPythonCorrelate(
             FlinkJoinType joinType,
             RexCall invocation,
-            RexNode condition,
-            ExecEdge inputEdge,
+            int id,
+            List<InputProperty> inputProperties,
             RowType outputType,
             String description) {
-        super(Collections.singletonList(inputEdge), outputType, description);
+        super(id, inputProperties, outputType, description);
+        checkArgument(inputProperties.size() == 1);
         this.joinType = joinType;
         this.invocation = invocation;
-        if (joinType == FlinkJoinType.LEFT && condition != null) {
-            throw new TableException(
-                    "Currently Python correlate does not support conditions in left join.");
-        }
     }
 
     @SuppressWarnings("unchecked")
     @Override
     protected Transformation<RowData> translateToPlanInternal(PlannerBase planner) {
-        final ExecNode<RowData> inputNode = (ExecNode<RowData>) getInputNodes().get(0);
-        final Transformation<RowData> inputTransform = inputNode.translateToPlan(planner);
+        final ExecEdge inputEdge = getInputEdges().get(0);
+        final Transformation<RowData> inputTransform =
+                (Transformation<RowData>) inputEdge.translateToPlan(planner);
         final Configuration config =
                 CommonPythonUtil.getMergedConfig(planner.getExecEnv(), planner.getTableConfig());
         OneInputTransformation<RowData, RowData> transform =
                 createPythonOneInputTransformation(inputTransform, config);
-        if (inputsContainSingleton()) {
-            transform.setParallelism(1);
-            transform.setMaxParallelism(1);
-        }
         if (CommonPythonUtil.isPythonWorkerUsingManagedMemory(config)) {
             transform.declareManagedMemoryUseCaseAtSlotScope(ManagedMemoryUseCase.PYTHON);
         }

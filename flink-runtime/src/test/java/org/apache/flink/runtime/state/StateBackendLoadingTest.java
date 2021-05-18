@@ -23,10 +23,12 @@ import org.apache.flink.configuration.Configuration;
 import org.apache.flink.configuration.HighAvailabilityOptions;
 import org.apache.flink.configuration.MemorySize;
 import org.apache.flink.configuration.ReadableConfig;
+import org.apache.flink.configuration.StateBackendOptions;
 import org.apache.flink.core.fs.FileSystem;
 import org.apache.flink.core.fs.Path;
 import org.apache.flink.runtime.state.filesystem.FsStateBackend;
 import org.apache.flink.runtime.state.filesystem.FsStateBackendFactory;
+import org.apache.flink.runtime.state.hashmap.HashMapStateBackend;
 import org.apache.flink.runtime.state.memory.MemoryStateBackend;
 import org.apache.flink.runtime.state.memory.MemoryStateBackendFactory;
 import org.apache.flink.util.DynamicCodeLoadingException;
@@ -53,7 +55,7 @@ public class StateBackendLoadingTest {
 
     private final ClassLoader cl = getClass().getClassLoader();
 
-    private final String backendKey = CheckpointingOptions.STATE_BACKEND.key();
+    private final String backendKey = StateBackendOptions.STATE_BACKEND.key();
 
     // ------------------------------------------------------------------------
     //  defaults
@@ -65,12 +67,12 @@ public class StateBackendLoadingTest {
     }
 
     @Test
-    public void testInstantiateMemoryBackendByDefault() throws Exception {
+    public void testInstantiateHashMapStateBackendBackendByDefault() throws Exception {
         StateBackend backend =
                 StateBackendLoader.fromApplicationOrConfigOrDefault(
                         null, new Configuration(), cl, null);
 
-        assertTrue(backend instanceof MemoryStateBackend);
+        assertTrue(backend instanceof HashMapStateBackend);
     }
 
     @Test
@@ -120,8 +122,6 @@ public class StateBackendLoadingTest {
         final Path expectedCheckpointPath = new Path(checkpointDir);
         final Path expectedSavepointPath = new Path(savepointDir);
 
-        final boolean async = !CheckpointingOptions.ASYNC_SNAPSHOTS.defaultValue();
-
         // we configure with the explicit string (rather than
         // AbstractStateBackend#X_STATE_BACKEND_NAME)
         // to guard against config-breaking changes of the name
@@ -130,13 +130,11 @@ public class StateBackendLoadingTest {
         config1.setString(backendKey, "jobmanager");
         config1.setString(CheckpointingOptions.CHECKPOINTS_DIRECTORY, checkpointDir);
         config1.setString(CheckpointingOptions.SAVEPOINT_DIRECTORY, savepointDir);
-        config1.setBoolean(CheckpointingOptions.ASYNC_SNAPSHOTS, async);
 
         final Configuration config2 = new Configuration();
         config2.setString(backendKey, MemoryStateBackendFactory.class.getName());
         config2.setString(CheckpointingOptions.CHECKPOINTS_DIRECTORY, checkpointDir);
         config2.setString(CheckpointingOptions.SAVEPOINT_DIRECTORY, savepointDir);
-        config2.setBoolean(CheckpointingOptions.ASYNC_SNAPSHOTS, async);
 
         MemoryStateBackend backend1 =
                 (MemoryStateBackend)
@@ -149,11 +147,9 @@ public class StateBackendLoadingTest {
         assertNotNull(backend2);
 
         assertEquals(expectedCheckpointPath, backend1.getCheckpointPath());
-        assertEquals(expectedCheckpointPath, backend2.getCheckpointPath());
         assertEquals(expectedSavepointPath, backend1.getSavepointPath());
+        assertEquals(expectedCheckpointPath, backend2.getCheckpointPath());
         assertEquals(expectedSavepointPath, backend2.getSavepointPath());
-        assertEquals(async, backend1.isUsingAsynchronousSnapshots());
-        assertEquals(async, backend2.isUsingAsynchronousSnapshots());
     }
 
     /**
@@ -168,15 +164,13 @@ public class StateBackendLoadingTest {
         final Path expectedSavepointPath = new Path(savepointDir);
 
         final int maxSize = 100;
-        final boolean async = !CheckpointingOptions.ASYNC_SNAPSHOTS.defaultValue();
 
-        final MemoryStateBackend backend = new MemoryStateBackend(maxSize, async);
+        final MemoryStateBackend backend = new MemoryStateBackend(maxSize);
 
         final Configuration config = new Configuration();
         config.setString(backendKey, "filesystem"); // check that this is not accidentally picked up
         config.setString(CheckpointingOptions.CHECKPOINTS_DIRECTORY, checkpointDir);
         config.setString(CheckpointingOptions.SAVEPOINT_DIRECTORY, savepointDir);
-        config.setBoolean(CheckpointingOptions.ASYNC_SNAPSHOTS, !async);
 
         StateBackend loadedBackend =
                 StateBackendLoader.fromApplicationOrConfigOrDefault(backend, config, cl, null);
@@ -186,7 +180,6 @@ public class StateBackendLoadingTest {
         assertEquals(expectedCheckpointPath, memBackend.getCheckpointPath());
         assertEquals(expectedSavepointPath, memBackend.getSavepointPath());
         assertEquals(maxSize, memBackend.getMaxStateSize());
-        assertEquals(async, memBackend.isUsingAsynchronousSnapshots());
     }
 
     /**
@@ -237,7 +230,6 @@ public class StateBackendLoadingTest {
         final Path expectedSavepointsPath = new Path(savepointDir);
         final MemorySize threshold = MemorySize.parse("900kb");
         final int minWriteBufferSize = 1024;
-        final boolean async = !CheckpointingOptions.ASYNC_SNAPSHOTS.defaultValue();
 
         // we configure with the explicit string (rather than
         // AbstractStateBackend#X_STATE_BACKEND_NAME)
@@ -248,7 +240,6 @@ public class StateBackendLoadingTest {
         config1.setString(CheckpointingOptions.SAVEPOINT_DIRECTORY, savepointDir);
         config1.set(CheckpointingOptions.FS_SMALL_FILE_THRESHOLD, threshold);
         config1.setInteger(CheckpointingOptions.FS_WRITE_BUFFER_SIZE, minWriteBufferSize);
-        config1.setBoolean(CheckpointingOptions.ASYNC_SNAPSHOTS, async);
 
         final Configuration config2 = new Configuration();
         config2.setString(backendKey, FsStateBackendFactory.class.getName());
@@ -256,27 +247,20 @@ public class StateBackendLoadingTest {
         config2.setString(CheckpointingOptions.SAVEPOINT_DIRECTORY, savepointDir);
         config2.set(CheckpointingOptions.FS_SMALL_FILE_THRESHOLD, threshold);
         config1.setInteger(CheckpointingOptions.FS_WRITE_BUFFER_SIZE, minWriteBufferSize);
-        config2.setBoolean(CheckpointingOptions.ASYNC_SNAPSHOTS, async);
 
         StateBackend backend1 = StateBackendLoader.loadStateBackendFromConfig(config1, cl, null);
         StateBackend backend2 = StateBackendLoader.loadStateBackendFromConfig(config2, cl, null);
 
-        assertTrue(backend1 instanceof FsStateBackend);
+        assertTrue(backend1 instanceof HashMapStateBackend);
         assertTrue(backend2 instanceof FsStateBackend);
 
-        FsStateBackend fs1 = (FsStateBackend) backend1;
+        HashMapStateBackend fs1 = (HashMapStateBackend) backend1;
         FsStateBackend fs2 = (FsStateBackend) backend2;
 
-        assertEquals(expectedCheckpointsPath, fs1.getCheckpointPath());
         assertEquals(expectedCheckpointsPath, fs2.getCheckpointPath());
-        assertEquals(expectedSavepointsPath, fs1.getSavepointPath());
         assertEquals(expectedSavepointsPath, fs2.getSavepointPath());
-        assertEquals(threshold.getBytes(), fs1.getMinFileSizeThreshold());
         assertEquals(threshold.getBytes(), fs2.getMinFileSizeThreshold());
-        assertEquals(Math.max(threshold.getBytes(), minWriteBufferSize), fs1.getWriteBufferSize());
         assertEquals(Math.max(threshold.getBytes(), minWriteBufferSize), fs2.getWriteBufferSize());
-        assertEquals(async, fs1.isUsingAsynchronousSnapshots());
-        assertEquals(async, fs2.isUsingAsynchronousSnapshots());
     }
 
     /**
@@ -426,29 +410,23 @@ public class StateBackendLoadingTest {
                 StateBackendLoader.fromApplicationOrConfigOrDefault(null, config2, cl, null);
 
         assertTrue(loaded1 instanceof MemoryStateBackend);
-        assertTrue(loaded2 instanceof MemoryStateBackend);
+        assertTrue(loaded2 instanceof HashMapStateBackend);
         assertTrue(loaded3 instanceof MemoryStateBackend);
 
         final MemoryStateBackend memBackend1 = (MemoryStateBackend) loaded1;
-        final MemoryStateBackend memBackend2 = (MemoryStateBackend) loaded2;
-        final MemoryStateBackend memBackend3 = (MemoryStateBackend) loaded3;
+        final MemoryStateBackend memBackend2 = (MemoryStateBackend) loaded3;
 
         assertNull(memBackend1.getSavepointPath());
-        assertNull(memBackend2.getSavepointPath());
-        assertNull(memBackend3.getSavepointPath());
 
         if (checkpointPath != null) {
             assertNotNull(memBackend1.getCheckpointPath());
             assertNotNull(memBackend2.getCheckpointPath());
-            assertNotNull(memBackend3.getCheckpointPath());
 
             assertEquals(checkpointPath, memBackend1.getCheckpointPath());
             assertEquals(checkpointPath, memBackend2.getCheckpointPath());
-            assertEquals(checkpointPath, memBackend3.getCheckpointPath());
         } else {
             assertNull(memBackend1.getCheckpointPath());
             assertNull(memBackend2.getCheckpointPath());
-            assertNull(memBackend3.getCheckpointPath());
         }
     }
 

@@ -102,9 +102,12 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
 import java.util.concurrent.Future;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReferenceFieldUpdater;
 import java.util.function.Consumer;
@@ -304,7 +307,6 @@ public class Task
             int attemptNumber,
             List<ResultPartitionDeploymentDescriptor> resultPartitionDeploymentDescriptors,
             List<InputGateDeploymentDescriptor> inputGateDeploymentDescriptors,
-            int targetSlotNumber,
             MemoryManager memManager,
             IOManager ioManager,
             ShuffleEnvironment<?, ?> shuffleEnvironment,
@@ -331,8 +333,6 @@ public class Task
 
         Preconditions.checkArgument(0 <= subtaskIndex, "The subtask index must be positive.");
         Preconditions.checkArgument(0 <= attemptNumber, "The attempt number must be positive.");
-        Preconditions.checkArgument(
-                0 <= targetSlotNumber, "The target slot number must be positive.");
 
         this.taskInfo =
                 new TaskInfo(
@@ -508,7 +508,8 @@ public class Task
     public boolean isBackPressured() {
         if (invokable == null
                 || consumableNotifyingPartitionWriters.length == 0
-                || executionState != ExecutionState.RUNNING) {
+                || (executionState != ExecutionState.INITIALIZING
+                        && executionState != ExecutionState.RUNNING)) {
             return false;
         }
         for (int i = 0; i < consumableNotifyingPartitionWriters.length; ++i) {
@@ -649,7 +650,7 @@ public class Task
             // the registration must also strictly be undone
             // ----------------------------------------------------------------
 
-            LOG.info("Registering task at network: {}.", this);
+            LOG.debug("Registering task at network: {}.", this);
 
             setupPartitionsAndGates(consumableNotifyingPartitionWriters, inputGates);
 
@@ -740,18 +741,33 @@ public class Task
             // by the time we switched to running.
             this.invokable = invokable;
 
-            // switch to the RUNNING state, if that fails, we have been canceled/failed in the
+            // switch to the INITIALIZING state, if that fails, we have been canceled/failed in the
             // meantime
-            if (!transitionState(ExecutionState.DEPLOYING, ExecutionState.RUNNING)) {
+            if (!transitionState(ExecutionState.DEPLOYING, ExecutionState.INITIALIZING)) {
+                throw new CancelTaskException();
+            }
+
+            taskManagerActions.updateTaskExecutionState(
+                    new TaskExecutionState(executionId, ExecutionState.INITIALIZING));
+
+            // make sure the user code classloader is accessible thread-locally
+            executingThread.setContextClassLoader(userCodeClassLoader.asClassLoader());
+
+            FlinkSecurityManager.monitorUserSystemExitForCurrentThread();
+            try {
+                // Restore invokable data to the last valid state
+                invokable.restore();
+            } finally {
+                FlinkSecurityManager.unmonitorUserSystemExitForCurrentThread();
+            }
+
+            if (!transitionState(ExecutionState.INITIALIZING, ExecutionState.RUNNING)) {
                 throw new CancelTaskException();
             }
 
             // notify everyone that we switched to running
             taskManagerActions.updateTaskExecutionState(
-                    new TaskExecutionState(jobId, executionId, ExecutionState.RUNNING));
-
-            // make sure the user code classloader is accessible thread-locally
-            executingThread.setContextClassLoader(userCodeClassLoader.asClassLoader());
+                    new TaskExecutionState(executionId, ExecutionState.RUNNING));
 
             // Monitor user codes from exiting JVM covering user function invocation. This can be
             // done in a finer-grained way like enclosing user callback functions individually,
@@ -820,15 +836,16 @@ public class Task
                     }
                 }
 
-                // transition into our final state. we should be either in DEPLOYING, RUNNING,
-                // CANCELING, or FAILED
+                // transition into our final state. we should be either in DEPLOYING, INITIALIZING,
+                // RUNNING, CANCELING, or FAILED
                 // loop for multiple retries during concurrent state changes via calls to cancel()
-                // or
-                // to failExternally()
+                // or to failExternally()
                 while (true) {
                     ExecutionState current = this.executionState;
 
-                    if (current == ExecutionState.RUNNING || current == ExecutionState.DEPLOYING) {
+                    if (current == ExecutionState.RUNNING
+                            || current == ExecutionState.INITIALIZING
+                            || current == ExecutionState.DEPLOYING) {
                         if (t instanceof CancelTaskException) {
                             if (transitionState(current, ExecutionState.CANCELED)) {
                                 cancelInvokable(invokable);
@@ -976,12 +993,20 @@ public class Task
             }
         }
 
-        for (InputGate inputGate : inputGates) {
-            try {
-                inputGate.close();
-            } catch (Throwable t) {
-                ExceptionUtils.rethrowIfFatalError(t);
-                LOG.error("Failed to release input gate for task {}.", taskNameWithSubtask, t);
+        AbstractInvokable invokable = this.invokable;
+        if (invokable == null || !invokable.isUsingNonBlockingInput()) {
+            // Cleanup resources instead of invokable if it is null,
+            // or prevent it from being blocked on input,
+            // or interrupt if it is already blocked.
+            // Not needed for StreamTask (which does NOT use blocking input); for which this could
+            // cause race conditions
+            for (InputGate inputGate : inputGates) {
+                try {
+                    inputGate.close();
+                } catch (Throwable t) {
+                    ExceptionUtils.rethrowIfFatalError(t);
+                    LOG.error("Failed to release input gate for task {}.", taskNameWithSubtask, t);
+                }
             }
         }
     }
@@ -1004,7 +1029,7 @@ public class Task
     private void notifyFinalState() {
         checkState(executionState.isTerminal());
         taskManagerActions.updateTaskExecutionState(
-                new TaskExecutionState(jobId, executionId, executionState, failureCause));
+                new TaskExecutionState(executionId, executionState, failureCause));
     }
 
     private void notifyFatalError(String message, Throwable cause) {
@@ -1042,12 +1067,12 @@ public class Task
                         newState);
             } else {
                 LOG.warn(
-                        "{} ({}) switched from {} to {}.",
+                        "{} ({}) switched from {} to {} with failure cause: {}",
                         taskNameWithSubtask,
                         executionId,
                         currentState,
                         newState,
-                        cause);
+                        ExceptionUtils.stringifyException(cause));
             }
 
             return true;
@@ -1123,8 +1148,9 @@ public class Task
                     this.failureCause = cause;
                     return;
                 }
-            } else if (current == ExecutionState.RUNNING) {
-                if (transitionState(ExecutionState.RUNNING, targetState, cause)) {
+            } else if (current == ExecutionState.INITIALIZING
+                    || current == ExecutionState.RUNNING) {
+                if (transitionState(current, targetState, cause)) {
                     // we are canceling / failing out of the running state
                     // we need to cancel the invokable
 
@@ -1150,6 +1176,10 @@ public class Task
                                 new TaskCanceler(
                                         LOG,
                                         this::closeNetworkResources,
+                                        taskCancellationTimeout > 0
+                                                ? taskCancellationTimeout
+                                                : TaskManagerOptions.TASK_CANCELLATION_TIMEOUT
+                                                        .defaultValue(),
                                         invokable,
                                         executingThread,
                                         taskNameWithSubtask);
@@ -1254,23 +1284,20 @@ public class Task
      * @param checkpointID The ID identifying the checkpoint.
      * @param checkpointTimestamp The timestamp associated with the checkpoint.
      * @param checkpointOptions Options for performing this checkpoint.
-     * @param advanceToEndOfEventTime Flag indicating if the source should inject a {@code
-     *     MAX_WATERMARK} in the pipeline to fire any registered event-time timers.
      */
     public void triggerCheckpointBarrier(
             final long checkpointID,
             final long checkpointTimestamp,
-            final CheckpointOptions checkpointOptions,
-            final boolean advanceToEndOfEventTime) {
+            final CheckpointOptions checkpointOptions) {
 
         final AbstractInvokable invokable = this.invokable;
         final CheckpointMetaData checkpointMetaData =
-                new CheckpointMetaData(checkpointID, checkpointTimestamp);
+                new CheckpointMetaData(
+                        checkpointID, checkpointTimestamp, System.currentTimeMillis());
 
         if (executionState == ExecutionState.RUNNING && invokable != null) {
             try {
-                invokable.triggerCheckpointAsync(
-                        checkpointMetaData, checkpointOptions, advanceToEndOfEventTime);
+                invokable.triggerCheckpointAsync(checkpointMetaData, checkpointOptions);
             } catch (RejectedExecutionException ex) {
                 // This may happen if the mailbox is closed. It means that the task is shutting
                 // down, so we just ignore it.
@@ -1384,9 +1411,12 @@ public class Task
     public void deliverOperatorEvent(OperatorID operator, SerializedValue<OperatorEvent> evt)
             throws FlinkException {
         final AbstractInvokable invokable = this.invokable;
+        final ExecutionState currentState = this.executionState;
 
-        if (invokable == null || executionState != ExecutionState.RUNNING) {
-            throw new TaskNotRunningException("Task is not yet running.");
+        if (invokable == null
+                || (currentState != ExecutionState.RUNNING
+                        && currentState != ExecutionState.INITIALIZING)) {
+            throw new TaskNotRunningException("Task is not running, but in state " + currentState);
         }
 
         try {
@@ -1394,7 +1424,8 @@ public class Task
         } catch (Throwable t) {
             ExceptionUtils.rethrowIfFatalErrorOrOOM(t);
 
-            if (getExecutionState() == ExecutionState.RUNNING) {
+            if (getExecutionState() == ExecutionState.RUNNING
+                    || getExecutionState() == ExecutionState.INITIALIZING) {
                 FlinkException e = new FlinkException("Error while handling operator event", t);
                 failExternally(e);
                 throw e;
@@ -1527,6 +1558,9 @@ public class Task
 
         private final Logger logger;
         private final Runnable networkResourcesCloser;
+        /** Time to wait after cancellation and interruption before releasing network resources. */
+        private final long taskCancellationTimeout;
+
         private final AbstractInvokable invokable;
         private final Thread executer;
         private final String taskName;
@@ -1534,11 +1568,13 @@ public class Task
         TaskCanceler(
                 Logger logger,
                 Runnable networkResourcesCloser,
+                long taskCancellationTimeout,
                 AbstractInvokable invokable,
                 Thread executer,
                 String taskName) {
             this.logger = logger;
             this.networkResourcesCloser = networkResourcesCloser;
+            this.taskCancellationTimeout = taskCancellationTimeout;
             this.invokable = invokable;
             this.executer = executer;
             this.taskName = taskName;
@@ -1550,7 +1586,17 @@ public class Task
                 // the user-defined cancel method may throw errors.
                 // we need do continue despite that
                 try {
-                    invokable.cancel();
+                    Future<Void> cancellationFuture = invokable.cancel();
+                    // Wait for any active actions to complete (e.g. timers, mailbox actions)
+                    // Before that, interrupt to notify them about cancellation
+                    if (invokable.shouldInterruptOnCancel()) {
+                        executer.interrupt();
+                    }
+                    try {
+                        cancellationFuture.get(taskCancellationTimeout, TimeUnit.MILLISECONDS);
+                    } catch (ExecutionException | TimeoutException | InterruptedException e) {
+                        logger.debug("Error while waiting the task to terminate {}.", taskName, e);
+                    }
                 } catch (Throwable t) {
                     ExceptionUtils.rethrowIfFatalError(t);
                     logger.error("Error while canceling the task {}.", taskName, t);
@@ -1560,15 +1606,8 @@ public class Task
                 // in order to unblock async Threads, which produce/consume the
                 // intermediate streams outside of the main Task Thread (like
                 // the Kafka consumer).
-                //
-                // Don't do this before cancelling the invokable. Otherwise we
-                // will get misleading errors in the logs.
                 networkResourcesCloser.run();
 
-                // send the initial interruption signal, if requested
-                if (invokable.shouldInterruptOnCancel()) {
-                    executer.interrupt();
-                }
             } catch (Throwable t) {
                 ExceptionUtils.rethrowIfFatalError(t);
                 logger.error("Error in the task canceler for task {}.", taskName, t);

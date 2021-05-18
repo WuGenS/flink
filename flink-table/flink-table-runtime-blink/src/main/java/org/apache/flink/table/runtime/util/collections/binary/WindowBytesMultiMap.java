@@ -19,11 +19,10 @@
 package org.apache.flink.table.runtime.util.collections.binary;
 
 import org.apache.flink.runtime.memory.MemoryManager;
+import org.apache.flink.table.data.RowData;
+import org.apache.flink.table.runtime.typeutils.PagedTypeSerializer;
 import org.apache.flink.table.runtime.typeutils.WindowKeySerializer;
 import org.apache.flink.table.runtime.util.WindowKey;
-import org.apache.flink.table.types.logical.LogicalType;
-
-import static org.apache.flink.util.Preconditions.checkArgument;
 
 /**
  * A binary map in the structure like {@code Map<WindowKey, List<BinaryRowData>>}.
@@ -36,14 +35,8 @@ public final class WindowBytesMultiMap extends AbstractBytesMultiMap<WindowKey> 
             Object owner,
             MemoryManager memoryManager,
             long memorySize,
-            LogicalType[] keyTypes,
-            LogicalType[] valueTypes) {
-        super(
-                owner,
-                memoryManager,
-                memorySize,
-                new WindowKeySerializer(keyTypes.length),
-                valueTypes);
-        checkArgument(keyTypes.length > 0);
+            PagedTypeSerializer<RowData> keySer,
+            int valueArity) {
+        super(owner, memoryManager, memorySize, new WindowKeySerializer(keySer), valueArity);
     }
 }

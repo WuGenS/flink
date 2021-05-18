@@ -23,7 +23,7 @@ under the License.
 	<parent>
 		<groupId>org.apache.flink</groupId>
 		<artifactId>flink-table</artifactId>
-		<version>1.13-SNAPSHOT</version>
+		<version>1.14-SNAPSHOT</version>
 		<relativePath>..</relativePath>
 	</parent>
 
@@ -280,6 +280,7 @@ under the License.
 			<scope>test</scope>
 		</dependency>
 
+		<!-- utility to scan classpaths -->
 		<dependency>
 			<groupId>org.reflections</groupId>
 			<artifactId>reflections</artifactId>
@@ -380,6 +381,8 @@ under the License.
 
 									<!-- Tools to unify display format for different languages -->
 									<include>com.ibm.icu:icu4j</include>
+
+									<include>org.reflections:reflections</include>
 								</includes>
 							</artifactSet>
 							<relocations>
@@ -417,6 +420,11 @@ under the License.
 									<pattern>org.codehaus</pattern>
 									<shadedPattern>org.apache.flink.table.shaded.org.codehaus</shadedPattern>
 								</relocation>-->
+
+								<relocation>
+									<pattern>org.reflections</pattern>
+									<shadedPattern>org.apache.flink.table.shaded.org.reflections</shadedPattern>
+								</relocation>
 
 							</relocations>
 						</configuration>

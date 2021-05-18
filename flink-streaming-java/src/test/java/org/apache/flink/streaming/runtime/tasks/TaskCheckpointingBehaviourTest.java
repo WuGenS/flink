@@ -27,6 +27,7 @@ import org.apache.flink.core.fs.CloseableRegistry;
 import org.apache.flink.core.testutils.OneShotLatch;
 import org.apache.flink.runtime.blob.VoidPermanentBlobService;
 import org.apache.flink.runtime.broadcast.BroadcastVariableManager;
+import org.apache.flink.runtime.checkpoint.CheckpointException;
 import org.apache.flink.runtime.checkpoint.CheckpointMetaData;
 import org.apache.flink.runtime.checkpoint.CheckpointMetrics;
 import org.apache.flink.runtime.checkpoint.CheckpointMetricsBuilder;
@@ -62,6 +63,7 @@ import org.apache.flink.runtime.state.DefaultOperatorStateBackendBuilder;
 import org.apache.flink.runtime.state.OperatorStateBackend;
 import org.apache.flink.runtime.state.OperatorStateCheckpointOutputStream;
 import org.apache.flink.runtime.state.OperatorStateHandle;
+import org.apache.flink.runtime.state.SnapshotExecutionType;
 import org.apache.flink.runtime.state.SnapshotResources;
 import org.apache.flink.runtime.state.SnapshotResult;
 import org.apache.flink.runtime.state.SnapshotStrategy;
@@ -221,7 +223,6 @@ public class TaskCheckpointingBehaviourTest extends TestLogger {
                 0,
                 Collections.<ResultPartitionDeploymentDescriptor>emptyList(),
                 Collections.<InputGateDeploymentDescriptor>emptyList(),
-                0,
                 mock(MemoryManager.class),
                 mock(IOManager.class),
                 shuffleEnvironment,
@@ -276,7 +277,7 @@ public class TaskCheckpointingBehaviourTest extends TestLogger {
                 JobID jobID,
                 ExecutionAttemptID executionAttemptID,
                 long checkpointId,
-                Throwable cause) {
+                CheckpointException checkpointException) {
 
             declinedLatch.trigger();
         }
@@ -372,7 +373,7 @@ public class TaskCheckpointingBehaviourTest extends TestLogger {
                                     "Failing strategy",
                                     FAILING_STRATEGY,
                                     registryForStateBackend,
-                                    SnapshotStrategyRunner.ExecutionType.ASYNCHRONOUS));
+                                    SnapshotExecutionType.ASYNCHRONOUS));
                 }
             }.build();
         }

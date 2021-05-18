@@ -18,20 +18,14 @@
 
 package org.apache.flink.streaming.connectors.kafka.table;
 
-import org.apache.flink.api.common.restartstrategy.RestartStrategies;
 import org.apache.flink.api.common.serialization.SerializationSchema;
 import org.apache.flink.api.common.serialization.SimpleStringSchema;
 import org.apache.flink.configuration.Configuration;
 import org.apache.flink.streaming.api.datastream.DataStreamSource;
-import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
-import org.apache.flink.streaming.connectors.kafka.FlinkKafkaProducerBase;
-import org.apache.flink.streaming.connectors.kafka.KafkaTestBaseWithFlink;
+import org.apache.flink.streaming.connectors.kafka.FlinkKafkaProducer;
 import org.apache.flink.streaming.connectors.kafka.partitioner.FlinkFixedPartitioner;
 import org.apache.flink.streaming.connectors.kafka.partitioner.FlinkKafkaPartitioner;
-import org.apache.flink.table.api.EnvironmentSettings;
 import org.apache.flink.table.api.TableResult;
-import org.apache.flink.table.api.bridge.java.StreamTableEnvironment;
-import org.apache.flink.table.planner.factories.TestValuesTableFactory;
 
 import org.junit.Before;
 import org.junit.Test;
@@ -42,28 +36,16 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Properties;
 
+import static org.apache.flink.streaming.connectors.kafka.FlinkKafkaProducer.DEFAULT_KAFKA_PRODUCERS_POOL_SIZE;
+import static org.apache.flink.streaming.connectors.kafka.FlinkKafkaProducer.Semantic.EXACTLY_ONCE;
 import static org.apache.flink.streaming.connectors.kafka.table.KafkaTableTestUtils.readLines;
 import static org.apache.flink.streaming.connectors.kafka.table.KafkaTableTestUtils.waitingExpectedResults;
 
 /** IT cases for Kafka with changelog format for Table API & SQL. */
-public class KafkaChangelogTableITCase extends KafkaTestBaseWithFlink {
-
-    protected StreamExecutionEnvironment env;
-    protected StreamTableEnvironment tEnv;
+public class KafkaChangelogTableITCase extends KafkaTableTestBase {
 
     @Before
-    public void setup() {
-        TestValuesTableFactory.clearAllData();
-        env = StreamExecutionEnvironment.getExecutionEnvironment();
-        tEnv =
-                StreamTableEnvironment.create(
-                        env,
-                        EnvironmentSettings.newInstance()
-                                // Watermark is only supported in blink planner
-                                .useBlinkPlanner()
-                                .inStreamingMode()
-                                .build());
-        env.getConfig().setRestartStrategy(RestartStrategies.noRestart());
+    public void before() {
         // we have to use single parallelism,
         // because we will count the messages in sink to terminate the job
         env.setParallelism(1);
@@ -88,19 +70,24 @@ public class KafkaChangelogTableITCase extends KafkaTestBaseWithFlink {
         FlinkKafkaPartitioner<String> partitioner = new FlinkFixedPartitioner<>();
 
         // the producer must not produce duplicates
-        Properties producerProperties =
-                FlinkKafkaProducerBase.getPropertiesFromBrokerList(brokerConnectionStrings);
+        Properties producerProperties = getStandardProps();
         producerProperties.setProperty("retries", "0");
-        producerProperties.putAll(secureProps);
-        kafkaServer.produceIntoKafka(stream, topic, serSchema, producerProperties, partitioner);
         try {
+            stream.addSink(
+                    new FlinkKafkaProducer<>(
+                            topic,
+                            serSchema,
+                            producerProperties,
+                            partitioner,
+                            EXACTLY_ONCE,
+                            DEFAULT_KAFKA_PRODUCERS_POOL_SIZE));
             env.execute("Write sequence");
         } catch (Exception e) {
             throw new Exception("Failed to write debezium data to Kafka.", e);
         }
 
         // ---------- Produce an event time stream into Kafka -------------------
-        String bootstraps = standardProps.getProperty("bootstrap.servers");
+        String bootstraps = getBootstrapServers();
         String sourceDDL =
                 String.format(
                         "CREATE TABLE debezium_source ("
@@ -226,19 +213,24 @@ public class KafkaChangelogTableITCase extends KafkaTestBaseWithFlink {
         FlinkKafkaPartitioner<String> partitioner = new FlinkFixedPartitioner<>();
 
         // the producer must not produce duplicates
-        Properties producerProperties =
-                FlinkKafkaProducerBase.getPropertiesFromBrokerList(brokerConnectionStrings);
+        Properties producerProperties = getStandardProps();
         producerProperties.setProperty("retries", "0");
-        producerProperties.putAll(secureProps);
-        kafkaServer.produceIntoKafka(stream, topic, serSchema, producerProperties, partitioner);
         try {
+            stream.addSink(
+                    new FlinkKafkaProducer<>(
+                            topic,
+                            serSchema,
+                            producerProperties,
+                            partitioner,
+                            EXACTLY_ONCE,
+                            DEFAULT_KAFKA_PRODUCERS_POOL_SIZE));
             env.execute("Write sequence");
         } catch (Exception e) {
             throw new Exception("Failed to write canal data to Kafka.", e);
         }
 
         // ---------- Produce an event time stream into Kafka -------------------
-        String bootstraps = standardProps.getProperty("bootstrap.servers");
+        String bootstraps = getBootstrapServers();
         String sourceDDL =
                 String.format(
                         "CREATE TABLE canal_source ("
@@ -248,13 +240,15 @@ public class KafkaChangelogTableITCase extends KafkaTestBaseWithFlink {
                                 + " origin_sql_type MAP<STRING, INT> METADATA FROM 'value.sql-type' VIRTUAL,"
                                 + " origin_pk_names ARRAY<STRING> METADATA FROM 'value.pk-names' VIRTUAL,"
                                 + " origin_ts TIMESTAMP(3) METADATA FROM 'value.ingestion-timestamp' VIRTUAL,"
+                                + " origin_es TIMESTAMP(3) METADATA FROM 'value.event-timestamp' VIRTUAL,"
                                 + " id INT NOT NULL,"
                                 + " name STRING,"
                                 + " description STRING,"
                                 + " weight DECIMAL(10,3),"
                                 // test connector metadata
                                 + " origin_topic STRING METADATA FROM 'topic' VIRTUAL,"
-                                + " origin_partition STRING METADATA FROM 'partition' VIRTUAL" // unused
+                                + " origin_partition STRING METADATA FROM 'partition' VIRTUAL," // unused
+                                + " WATERMARK FOR origin_es AS origin_es - INTERVAL '5' SECOND"
                                 + ") WITH ("
                                 + " 'connector' = 'kafka',"
                                 + " 'topic' = '%s',"
@@ -271,6 +265,7 @@ public class KafkaChangelogTableITCase extends KafkaTestBaseWithFlink {
                         + " origin_sql_type MAP<STRING, INT>,"
                         + " origin_pk_names ARRAY<STRING>,"
                         + " origin_ts TIMESTAMP(3),"
+                        + " origin_es TIMESTAMP(3),"
                         + " name STRING,"
                         + " PRIMARY KEY (name) NOT ENFORCED"
                         + ") WITH ("
@@ -283,7 +278,7 @@ public class KafkaChangelogTableITCase extends KafkaTestBaseWithFlink {
                 tEnv.executeSql(
                         "INSERT INTO sink "
                                 + "SELECT origin_topic, origin_database, origin_table, origin_sql_type, "
-                                + "origin_pk_names, origin_ts, name "
+                                + "origin_pk_names, origin_ts, origin_es, name "
                                 + "FROM canal_source");
 
         /*
@@ -336,11 +331,11 @@ public class KafkaChangelogTableITCase extends KafkaTestBaseWithFlink {
 
         List<String> expected =
                 Arrays.asList(
-                        "+I[changelog_canal, inventory, products2, {name=12, weight=7, description=12, id=4}, [id], 2020-05-13T12:38:35.477, spare tire]",
-                        "+I[changelog_canal, inventory, products2, {name=12, weight=7, description=12, id=4}, [id], 2020-05-13T12:39:06.301, hammer]",
-                        "+I[changelog_canal, inventory, products2, {name=12, weight=7, description=12, id=4}, [id], 2020-05-13T12:39:09.489, rocks]",
-                        "+I[changelog_canal, inventory, products2, {name=12, weight=7, description=12, id=4}, [id], 2020-05-13T12:39:18.230, jacket]",
-                        "+I[changelog_canal, inventory, products2, {name=12, weight=7, description=12, id=4}, [id], 2020-05-13T12:42:33.939, scooter]");
+                        "+I[changelog_canal, inventory, products2, {name=12, weight=7, description=12, id=4}, [id], 2020-05-13T12:38:35.477, 2020-05-13T12:38:35, spare tire]",
+                        "+I[changelog_canal, inventory, products2, {name=12, weight=7, description=12, id=4}, [id], 2020-05-13T12:39:06.301, 2020-05-13T12:39:06, hammer]",
+                        "+I[changelog_canal, inventory, products2, {name=12, weight=7, description=12, id=4}, [id], 2020-05-13T12:39:09.489, 2020-05-13T12:39:09, rocks]",
+                        "+I[changelog_canal, inventory, products2, {name=12, weight=7, description=12, id=4}, [id], 2020-05-13T12:39:18.230, 2020-05-13T12:39:18, jacket]",
+                        "+I[changelog_canal, inventory, products2, {name=12, weight=7, description=12, id=4}, [id], 2020-05-13T12:42:33.939, 2020-05-13T12:42:33, scooter]");
 
         waitingExpectedResults("sink", expected, Duration.ofSeconds(10));
 

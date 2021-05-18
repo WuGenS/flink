@@ -23,13 +23,14 @@ import org.apache.flink.table.connector.ChangelogMode
 import org.apache.flink.table.planner.plan.`trait`.UpdateKindTrait.{BEFORE_AND_AFTER, ONLY_UPDATE_AFTER, beforeAfterOrNone, onlyAfterOrNone}
 import org.apache.flink.table.planner.plan.`trait`._
 import org.apache.flink.table.planner.plan.nodes.physical.stream._
+import org.apache.flink.table.planner.plan.utils.RankProcessStrategy.{AppendFastStrategy, RetractStrategy, UpdateFastStrategy}
 import org.apache.flink.table.planner.plan.utils._
 import org.apache.flink.table.planner.sinks.DataStreamTableSink
 import org.apache.flink.table.runtime.operators.join.FlinkJoinType
 import org.apache.flink.table.sinks.{AppendStreamTableSink, RetractStreamTableSink, StreamTableSink, UpsertStreamTableSink}
+
 import org.apache.calcite.rel.RelNode
 import org.apache.calcite.util.ImmutableBitSet
-import org.apache.flink.table.planner.plan.utils.RankProcessStrategy.{AppendFastStrategy, RetractStrategy, UpdateFastStrategy}
 
 import scala.collection.JavaConversions._
 
@@ -199,8 +200,8 @@ class FlinkChangelogModeInferenceProgram extends FlinkOptimizeProgram[StreamOpti
         createNewNode(agg, children, providedTrait, requiredTrait, requester)
 
       case window: StreamPhysicalGroupWindowAggregateBase =>
-        // WindowAggregate and WindowTableAggregate support insert-only in input
-        val children = visitChildren(window, ModifyKindSetTrait.INSERT_ONLY)
+        // WindowAggregate and WindowTableAggregate support all changes in input
+        val children = visitChildren(window, ModifyKindSetTrait.ALL_CHANGES)
         val builder = ModifyKindSet.newBuilder()
           .addContainedKind(ModifyKind.INSERT)
         if (window.emitStrategy.produceUpdates) {
@@ -208,6 +209,12 @@ class FlinkChangelogModeInferenceProgram extends FlinkOptimizeProgram[StreamOpti
         }
         val providedTrait = new ModifyKindSetTrait(builder.build())
         createNewNode(window, children, providedTrait, requiredTrait, requester)
+
+      case _: StreamPhysicalWindowAggregate | _: StreamPhysicalWindowRank =>
+        // WindowAggregate and WindowRank support insert-only in input
+        val children = visitChildren(rel, ModifyKindSetTrait.INSERT_ONLY)
+        val providedTrait = ModifyKindSetTrait.INSERT_ONLY
+        createNewNode(rel, children, providedTrait, requiredTrait, requester)
 
       case limit: StreamPhysicalLimit =>
         // limit support all changes in input
@@ -259,6 +266,12 @@ class FlinkChangelogModeInferenceProgram extends FlinkOptimizeProgram[StreamOpti
         }
         createNewNode(join, children, providedTrait, requiredTrait, requester)
 
+      case windowJoin: StreamPhysicalWindowJoin =>
+        // Currently, window join only supports INSERT_ONLY in input
+        val children = visitChildren(rel, ModifyKindSetTrait.INSERT_ONLY)
+        createNewNode(
+          windowJoin, children, ModifyKindSetTrait.INSERT_ONLY, requiredTrait, requester)
+
       case temporalJoin: StreamPhysicalTemporalJoin =>
         // currently, temporal join supports all kings of changes, including right side
         val children = visitChildren(temporalJoin, ModifyKindSetTrait.ALL_CHANGES)
@@ -269,7 +282,7 @@ class FlinkChangelogModeInferenceProgram extends FlinkOptimizeProgram[StreamOpti
       case _: StreamPhysicalCalcBase | _: StreamPhysicalCorrelateBase |
            _: StreamPhysicalLookupJoin | _: StreamPhysicalExchange |
            _: StreamPhysicalExpand | _: StreamPhysicalMiniBatchAssigner |
-           _: StreamPhysicalWatermarkAssigner =>
+           _: StreamPhysicalWatermarkAssigner | _: StreamPhysicalWindowTableFunction =>
         // transparent forward requiredTrait to children
         val children = visitChildren(rel, requiredTrait, requester)
         val childrenTrait = children.head.getTraitSet.getTrait(ModifyKindSetTraitDef.INSTANCE)
@@ -457,19 +470,21 @@ class FlinkChangelogModeInferenceProgram extends FlinkOptimizeProgram[StreamOpti
 
       case _: StreamPhysicalGroupAggregate | _: StreamPhysicalGroupTableAggregate |
            _: StreamPhysicalLimit | _: StreamPhysicalPythonGroupAggregate |
-           _: StreamPhysicalPythonGroupTableAggregate =>
-        // Aggregate, TableAggregate and Limit requires update_before if there are updates
+           _: StreamPhysicalPythonGroupTableAggregate |
+           _: StreamPhysicalGroupWindowAggregateBase =>
+        // Aggregate, TableAggregate, Limit and GroupWindowAggregate requires update_before if
+        // there are updates
         val requiredChildTrait = beforeAfterOrNone(getModifyKindSet(rel.getInput(0)))
         val children = visitChildren(rel, requiredChildTrait)
         // use requiredTrait as providedTrait, because they should support all kinds of UpdateKind
         createNewNode(rel, children, requiredTrait)
 
-      case _: StreamPhysicalGroupWindowAggregate | _: StreamPhysicalGroupWindowTableAggregate |
+      case _: StreamPhysicalWindowAggregate | _: StreamPhysicalWindowRank |
            _: StreamPhysicalDeduplicate | _: StreamPhysicalTemporalSort | _: StreamPhysicalMatch |
            _: StreamPhysicalOverAggregate | _: StreamPhysicalIntervalJoin |
-           _: StreamPhysicalPythonGroupWindowAggregate | _: StreamPhysicalPythonOverAggregate =>
-        // WindowAggregate, WindowTableAggregate, Deduplicate, TemporalSort, CEP, OverAggregate
-        // and IntervalJoin require nothing about UpdateKind.
+           _: StreamPhysicalPythonOverAggregate | _: StreamPhysicalWindowJoin =>
+        // WindowAggregate, WindowTableAggregate, Deduplicate, TemporalSort, CEP,
+        // OverAggregate, and IntervalJoin, WindowJoin require nothing about UpdateKind.
         val children = visitChildren(rel, UpdateKindTrait.NONE)
         createNewNode(rel, children, requiredTrait)
 
@@ -567,7 +582,8 @@ class FlinkChangelogModeInferenceProgram extends FlinkOptimizeProgram[StreamOpti
 
       case _: StreamPhysicalCorrelateBase | _: StreamPhysicalLookupJoin |
            _: StreamPhysicalExchange | _: StreamPhysicalExpand |
-           _: StreamPhysicalMiniBatchAssigner | _: StreamPhysicalWatermarkAssigner =>
+           _: StreamPhysicalMiniBatchAssigner | _: StreamPhysicalWatermarkAssigner |
+           _: StreamPhysicalWindowTableFunction =>
         // transparent forward requiredTrait to children
         visitChildren(rel, requiredTrait) match {
           case None => None

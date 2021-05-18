@@ -22,18 +22,27 @@ import org.apache.flink.api.dag.Transformation;
 import org.apache.flink.table.api.TableException;
 import org.apache.flink.table.data.RowData;
 import org.apache.flink.table.planner.delegation.PlannerBase;
-import org.apache.flink.table.planner.plan.nodes.exec.ExecEdge;
-import org.apache.flink.table.planner.plan.nodes.exec.utils.PartitionSpec;
-import org.apache.flink.table.planner.plan.nodes.exec.utils.SortSpec;
+import org.apache.flink.table.planner.plan.nodes.exec.InputProperty;
+import org.apache.flink.table.planner.plan.nodes.exec.spec.PartitionSpec;
+import org.apache.flink.table.planner.plan.nodes.exec.spec.SortSpec;
 import org.apache.flink.table.planner.plan.utils.RankProcessStrategy;
 import org.apache.flink.table.runtime.operators.rank.ConstantRankRange;
 import org.apache.flink.table.runtime.operators.rank.RankType;
 import org.apache.flink.table.types.logical.RowType;
 
+import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.annotation.JsonCreator;
+import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.annotation.JsonIgnore;
+import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.annotation.JsonProperty;
+
+import java.util.Collections;
+import java.util.List;
+
 /** {@link StreamExecNode} for Sort with limit. */
+@JsonIgnoreProperties(ignoreUnknown = true)
 public class StreamExecSortLimit extends StreamExecRank {
 
-    private final long limitEnd;
+    @JsonIgnore private final long limitEnd;
 
     public StreamExecSortLimit(
             SortSpec sortSpec,
@@ -41,21 +50,44 @@ public class StreamExecSortLimit extends StreamExecRank {
             long limitEnd,
             RankProcessStrategy rankStrategy,
             boolean generateUpdateBefore,
-            ExecEdge inputEdge,
+            InputProperty inputProperty,
             RowType outputType,
             String description) {
+        this(
+                sortSpec,
+                new ConstantRankRange(limitStart + 1, limitEnd),
+                rankStrategy,
+                generateUpdateBefore,
+                getNewNodeId(),
+                Collections.singletonList(inputProperty),
+                outputType,
+                description);
+    }
+
+    @JsonCreator
+    public StreamExecSortLimit(
+            @JsonProperty(FIELD_NAME_SORT_SPEC) SortSpec sortSpec,
+            @JsonProperty(FIELD_NAME_RANK_RANG) ConstantRankRange rankRange,
+            @JsonProperty(FIELD_NAME_RANK_STRATEGY) RankProcessStrategy rankStrategy,
+            @JsonProperty(FIELD_NAME_GENERATE_UPDATE_BEFORE) boolean generateUpdateBefore,
+            @JsonProperty(FIELD_NAME_ID) int id,
+            @JsonProperty(FIELD_NAME_INPUT_PROPERTIES) List<InputProperty> inputProperties,
+            @JsonProperty(FIELD_NAME_OUTPUT_TYPE) RowType outputType,
+            @JsonProperty(FIELD_NAME_DESCRIPTION) String description) {
+
         super(
                 RankType.ROW_NUMBER,
                 PartitionSpec.ALL_IN_ONE,
                 sortSpec,
-                new ConstantRankRange(limitStart + 1, limitEnd),
+                rankRange,
                 rankStrategy,
-                false,
+                false, // outputRankNumber
                 generateUpdateBefore,
-                inputEdge,
+                id,
+                inputProperties,
                 outputType,
                 description);
-        this.limitEnd = limitEnd;
+        this.limitEnd = rankRange.getRankEnd();
     }
 
     @Override

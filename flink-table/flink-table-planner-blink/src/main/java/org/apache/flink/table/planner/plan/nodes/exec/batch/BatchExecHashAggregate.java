@@ -30,6 +30,8 @@ import org.apache.flink.table.planner.delegation.PlannerBase;
 import org.apache.flink.table.planner.plan.nodes.exec.ExecEdge;
 import org.apache.flink.table.planner.plan.nodes.exec.ExecNode;
 import org.apache.flink.table.planner.plan.nodes.exec.ExecNodeBase;
+import org.apache.flink.table.planner.plan.nodes.exec.InputProperty;
+import org.apache.flink.table.planner.plan.nodes.exec.SingleTransformationTranslator;
 import org.apache.flink.table.planner.plan.nodes.exec.utils.ExecNodeUtil;
 import org.apache.flink.table.planner.plan.utils.AggregateInfoList;
 import org.apache.flink.table.planner.plan.utils.AggregateUtil;
@@ -46,7 +48,7 @@ import java.util.Collections;
 
 /** Batch {@link ExecNode} for hash-based aggregate operator. */
 public class BatchExecHashAggregate extends ExecNodeBase<RowData>
-        implements BatchExecNode<RowData> {
+        implements BatchExecNode<RowData>, SingleTransformationTranslator<RowData> {
 
     private final int[] grouping;
     private final int[] auxGrouping;
@@ -62,10 +64,10 @@ public class BatchExecHashAggregate extends ExecNodeBase<RowData>
             RowType aggInputRowType,
             boolean isMerge,
             boolean isFinal,
-            ExecEdge inputEdge,
+            InputProperty inputProperty,
             RowType outputType,
             String description) {
-        super(Collections.singletonList(inputEdge), outputType, description);
+        super(Collections.singletonList(inputProperty), outputType, description);
         this.grouping = grouping;
         this.auxGrouping = auxGrouping;
         this.aggCalls = aggCalls;
@@ -77,10 +79,11 @@ public class BatchExecHashAggregate extends ExecNodeBase<RowData>
     @SuppressWarnings("unchecked")
     @Override
     protected Transformation<RowData> translateToPlanInternal(PlannerBase planner) {
-        final ExecNode<RowData> inputNode = (ExecNode<RowData>) getInputNodes().get(0);
-        final Transformation<RowData> inputTransform = inputNode.translateToPlan(planner);
+        final ExecEdge inputEdge = getInputEdges().get(0);
+        final Transformation<RowData> inputTransform =
+                (Transformation<RowData>) inputEdge.translateToPlan(planner);
 
-        final RowType inputRowType = (RowType) inputNode.getOutputType();
+        final RowType inputRowType = (RowType) inputEdge.getOutputType();
         final RowType outputRowType = (RowType) getOutputType();
 
         final TableConfig config = planner.getTableConfig();
@@ -90,8 +93,8 @@ public class BatchExecHashAggregate extends ExecNodeBase<RowData>
                 AggregateUtil.transformToBatchAggregateInfoList(
                         aggInputRowType,
                         JavaScalaConversionUtil.toScala(Arrays.asList(aggCalls)),
-                        null,
-                        null);
+                        null, // aggCallNeedRetractions
+                        null); // orderKeyIndexes
 
         final long managedMemory;
         final GeneratedOperator<OneInputStreamOperator<RowData, RowData>> generatedOperator;

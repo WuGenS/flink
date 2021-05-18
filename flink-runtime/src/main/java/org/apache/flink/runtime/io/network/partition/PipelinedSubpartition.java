@@ -128,6 +128,18 @@ public class PipelinedSubpartition extends ResultSubpartition
     }
 
     @Override
+    public void addRecovered(BufferConsumer bufferConsumer) throws IOException {
+        NetworkActionsLogger.traceRecover(
+                "PipelinedSubpartition#addRecovered",
+                bufferConsumer,
+                parent.getOwningTaskName(),
+                subpartitionInfo);
+        if (!add(bufferConsumer, Integer.MIN_VALUE)) {
+            throw new IOException("Buffer consumer couldn't be added to ResultSubpartition");
+        }
+    }
+
+    @Override
     public void finishReadRecoveredState(boolean notifyAndBlockOnCompletion) throws IOException {
         if (notifyAndBlockOnCompletion) {
             add(EventSerializer.toBufferConsumer(EndOfChannelStateEvent.INSTANCE, false), 0, false);
@@ -325,7 +337,10 @@ public class PipelinedSubpartition extends ResultSubpartition
             // queue
             // will be 2 or more.
             NetworkActionsLogger.traceOutput(
-                    "PipelinedSubpartition#pollBuffer", buffer, subpartitionInfo);
+                    "PipelinedSubpartition#pollBuffer",
+                    buffer,
+                    parent.getOwningTaskName(),
+                    subpartitionInfo);
             return new BufferAndBacklog(
                     buffer,
                     getBuffersInBacklog(),

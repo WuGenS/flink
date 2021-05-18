@@ -32,6 +32,8 @@ import org.apache.flink.table.planner.delegation.PlannerBase;
 import org.apache.flink.table.planner.plan.nodes.exec.ExecEdge;
 import org.apache.flink.table.planner.plan.nodes.exec.ExecNode;
 import org.apache.flink.table.planner.plan.nodes.exec.ExecNodeBase;
+import org.apache.flink.table.planner.plan.nodes.exec.InputProperty;
+import org.apache.flink.table.planner.plan.nodes.exec.SingleTransformationTranslator;
 import org.apache.flink.table.planner.plan.nodes.exec.utils.CommonPythonUtil;
 import org.apache.flink.table.planner.plan.utils.AggregateInfoList;
 import org.apache.flink.table.planner.plan.utils.AggregateUtil;
@@ -53,7 +55,7 @@ import java.util.Collections;
 
 /** Stream {@link ExecNode} for unbounded python group table aggregate. */
 public class StreamExecPythonGroupTableAggregate extends ExecNodeBase<RowData>
-        implements StreamExecNode<RowData> {
+        implements StreamExecNode<RowData>, SingleTransformationTranslator<RowData> {
     private static final Logger LOG =
             LoggerFactory.getLogger(StreamExecPythonGroupTableAggregate.class);
 
@@ -72,10 +74,10 @@ public class StreamExecPythonGroupTableAggregate extends ExecNodeBase<RowData>
             boolean[] aggCallNeedRetractions,
             boolean generateUpdateBefore,
             boolean needRetraction,
-            ExecEdge inputEdge,
+            InputProperty inputProperty,
             RowType outputType,
             String description) {
-        super(Collections.singletonList(inputEdge), outputType, description);
+        super(Collections.singletonList(inputProperty), outputType, description);
         this.grouping = grouping;
         this.aggCalls = aggCalls;
         this.aggCallNeedRetractions = aggCallNeedRetractions;
@@ -95,9 +97,10 @@ public class StreamExecPythonGroupTableAggregate extends ExecNodeBase<RowData>
                             + "to prevent excessive state size. You may specify a retention time "
                             + "of 0 to not clean up the state.");
         }
-        final ExecNode<RowData> inputNode = (ExecNode<RowData>) getInputNodes().get(0);
-        final Transformation<RowData> inputTransform = inputNode.translateToPlan(planner);
-        final RowType inputRowType = (RowType) inputNode.getOutputType();
+        final ExecEdge inputEdge = getInputEdges().get(0);
+        final Transformation<RowData> inputTransform =
+                (Transformation<RowData>) inputEdge.translateToPlan(planner);
+        final RowType inputRowType = (RowType) inputEdge.getOutputType();
 
         final AggregateInfoList aggInfoList =
                 AggregateUtil.transformToStreamAggregateInfoList(
@@ -105,8 +108,8 @@ public class StreamExecPythonGroupTableAggregate extends ExecNodeBase<RowData>
                         JavaScalaConversionUtil.toScala(Arrays.asList(aggCalls)),
                         aggCallNeedRetractions,
                         needRetraction,
-                        true,
-                        true);
+                        true, // isStateBackendDataViews
+                        true); // needDistinctInfo
         int inputCountIndex = aggInfoList.getIndexOfCountStar();
         Tuple2<PythonAggregateFunctionInfo[], DataViewUtils.DataViewSpec[][]>
                 aggInfosAndDataViewSpecs =
@@ -133,11 +136,6 @@ public class StreamExecPythonGroupTableAggregate extends ExecNodeBase<RowData>
                         pythonOperator,
                         InternalTypeInfo.of(getOutputType()),
                         inputTransform.getParallelism());
-
-        if (inputsContainSingleton()) {
-            transform.setParallelism(1);
-            transform.setMaxParallelism(1);
-        }
 
         if (CommonPythonUtil.isPythonWorkerUsingManagedMemory(config)) {
             transform.declareManagedMemoryUseCaseAtSlotScope(ManagedMemoryUseCase.PYTHON);

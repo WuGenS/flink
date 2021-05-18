@@ -24,9 +24,9 @@ import pytz
 from pyflink.table import DataTypes, expressions as expr
 from pyflink.table.udf import ScalarFunction, udf
 from pyflink.testing import source_sink_utils
-from pyflink.testing.test_case_utils import PyFlinkStreamTableTestCase, \
+from pyflink.testing.test_case_utils import PyFlinkOldStreamTableTestCase, \
     PyFlinkBlinkStreamTableTestCase, PyFlinkBlinkBatchTableTestCase, \
-    PyFlinkBatchTableTestCase
+    PyFlinkOldBatchTableTestCase
 
 
 class UserDefinedFunctionTests(object):
@@ -640,11 +640,11 @@ def float_equal(a, b, rel_tol=1e-09, abs_tol=0.0):
 
 
 class PyFlinkStreamUserDefinedFunctionTests(UserDefinedFunctionTests,
-                                            PyFlinkStreamTableTestCase):
+                                            PyFlinkOldStreamTableTestCase):
     pass
 
 
-class PyFlinkBatchUserDefinedFunctionTests(PyFlinkBatchTableTestCase):
+class PyFlinkBatchUserDefinedFunctionTests(PyFlinkOldBatchTableTestCase):
 
     def test_chaining_scalar_function(self):
         add_one = udf(lambda i: i + 1, result_type=DataTypes.BIGINT())
@@ -747,6 +747,54 @@ class PyFlinkBlinkStreamUserDefinedFunctionTests(UserDefinedFunctionTests,
             .wait()
         actual = source_sink_utils.results()
         self.assert_equals(actual, ["+I[1970-01-01T00:00:00.123Z]"])
+
+    def test_execute_from_json_plan(self):
+        # create source file path
+        tmp_dir = self.tempdir
+        data = ['1,1', '3,3', '2,2']
+        source_path = tmp_dir + '/test_execute_from_json_plan_input.csv'
+        sink_path = tmp_dir + '/test_execute_from_json_plan_out'
+        with open(source_path, 'w') as fd:
+            for ele in data:
+                fd.write(ele + '\n')
+
+        source_table = """
+            CREATE TABLE source_table (
+                a BIGINT,
+                b BIGINT
+            ) WITH (
+                'connector' = 'filesystem',
+                'path' = '%s',
+                'format' = 'csv'
+            )
+        """ % source_path
+        self.t_env.execute_sql(source_table)
+
+        self.t_env.execute_sql("""
+            CREATE TABLE sink_table (
+                id BIGINT,
+                data BIGINT
+            ) WITH (
+                'connector' = 'filesystem',
+                'path' = '%s',
+                'format' = 'csv'
+            )
+        """ % sink_path)
+
+        add_one = udf(lambda i: i + 1, result_type=DataTypes.BIGINT())
+        self.t_env.create_temporary_system_function("add_one", add_one)
+
+        json_plan = self.t_env._j_tenv.getJsonPlan("INSERT INTO sink_table SELECT "
+                                                   "a, "
+                                                   "add_one(b) "
+                                                   "FROM source_table")
+        from py4j.java_gateway import get_method
+        get_method(self.t_env._j_tenv.executeJsonPlan(json_plan), "await")()
+
+        import glob
+        lines = [line.strip() for file in glob.glob(sink_path + '/*') for line in open(file, 'r')]
+        lines.sort()
+        self.assertEqual(lines, ['1,2', '2,3', '3,4'])
 
 
 class PyFlinkBlinkBatchUserDefinedFunctionTests(UserDefinedFunctionTests,

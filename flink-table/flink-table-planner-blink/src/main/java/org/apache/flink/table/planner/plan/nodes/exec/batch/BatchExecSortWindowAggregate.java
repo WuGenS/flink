@@ -25,15 +25,17 @@ import org.apache.flink.streaming.api.transformations.OneInputTransformation;
 import org.apache.flink.table.api.TableConfig;
 import org.apache.flink.table.api.config.ExecutionConfigOptions;
 import org.apache.flink.table.data.RowData;
-import org.apache.flink.table.planner.calcite.FlinkRelBuilder.PlannerNamedWindowProperty;
 import org.apache.flink.table.planner.codegen.CodeGeneratorContext;
 import org.apache.flink.table.planner.codegen.agg.batch.SortWindowCodeGenerator;
 import org.apache.flink.table.planner.codegen.agg.batch.WindowCodeGenerator;
 import org.apache.flink.table.planner.delegation.PlannerBase;
+import org.apache.flink.table.planner.expressions.PlannerNamedWindowProperty;
 import org.apache.flink.table.planner.plan.logical.LogicalWindow;
 import org.apache.flink.table.planner.plan.nodes.exec.ExecEdge;
 import org.apache.flink.table.planner.plan.nodes.exec.ExecNode;
 import org.apache.flink.table.planner.plan.nodes.exec.ExecNodeBase;
+import org.apache.flink.table.planner.plan.nodes.exec.InputProperty;
+import org.apache.flink.table.planner.plan.nodes.exec.SingleTransformationTranslator;
 import org.apache.flink.table.planner.plan.utils.AggregateInfoList;
 import org.apache.flink.table.planner.plan.utils.AggregateUtil;
 import org.apache.flink.table.planner.utils.JavaScalaConversionUtil;
@@ -49,7 +51,7 @@ import java.util.Collections;
 
 /** Batch {@link ExecNode} for sort-based window aggregate operator. */
 public class BatchExecSortWindowAggregate extends ExecNodeBase<RowData>
-        implements BatchExecNode<RowData> {
+        implements BatchExecNode<RowData>, SingleTransformationTranslator<RowData> {
 
     private final int[] grouping;
     private final int[] auxGrouping;
@@ -75,10 +77,10 @@ public class BatchExecSortWindowAggregate extends ExecNodeBase<RowData>
             boolean enableAssignPane,
             boolean isMerge,
             boolean isFinal,
-            ExecEdge inputEdge,
+            InputProperty inputProperty,
             RowType outputType,
             String description) {
-        super(Collections.singletonList(inputEdge), outputType, description);
+        super(Collections.singletonList(inputProperty), outputType, description);
         this.grouping = grouping;
         this.auxGrouping = auxGrouping;
         this.aggCalls = aggCalls;
@@ -95,15 +97,16 @@ public class BatchExecSortWindowAggregate extends ExecNodeBase<RowData>
     @SuppressWarnings("unchecked")
     @Override
     protected Transformation<RowData> translateToPlanInternal(PlannerBase planner) {
-        final ExecNode<RowData> inputNode = (ExecNode<RowData>) getInputNodes().get(0);
-        final Transformation<RowData> inputTransform = inputNode.translateToPlan(planner);
+        final ExecEdge inputEdge = getInputEdges().get(0);
+        final Transformation<RowData> inputTransform =
+                (Transformation<RowData>) inputEdge.translateToPlan(planner);
 
         final AggregateInfoList aggInfos =
                 AggregateUtil.transformToBatchAggregateInfoList(
                         aggInputRowType,
                         JavaScalaConversionUtil.toScala(Arrays.asList(aggCalls)),
-                        null,
-                        null);
+                        null, // aggCallNeedRetractions
+                        null); // orderKeyIndexes
 
         final TableConfig tableConfig = planner.getTableConfig();
         final int groupBufferLimitSize =
@@ -121,10 +124,10 @@ public class BatchExecSortWindowAggregate extends ExecNodeBase<RowData>
                         inputTimeIsDate,
                         JavaScalaConversionUtil.toScala(Arrays.asList(namedWindowProperties)),
                         aggInfos,
-                        (RowType) inputNode.getOutputType(),
+                        (RowType) inputEdge.getOutputType(),
                         (RowType) getOutputType(),
                         groupBufferLimitSize,
-                        0L,
+                        0L, // windowStart
                         windowSizeAndSlideSize.f0,
                         windowSizeAndSlideSize.f1,
                         grouping,

@@ -20,13 +20,14 @@ package org.apache.flink.table.planner.plan.nodes.physical.batch
 
 import org.apache.flink.table.planner.plan.nodes.calcite.LegacySink
 import org.apache.flink.table.planner.plan.nodes.exec.batch.BatchExecLegacySink
-import org.apache.flink.table.planner.plan.nodes.exec.{ExecEdge, ExecNode}
+import org.apache.flink.table.planner.plan.nodes.exec.{ExecNode, InputProperty}
 import org.apache.flink.table.planner.plan.utils.UpdatingPlanChecker
 import org.apache.flink.table.runtime.types.LogicalTypeDataTypeConverter.fromDataTypeToLogicalType
 import org.apache.flink.table.sinks.{TableSink, UpsertStreamTableSink}
 
 import org.apache.calcite.plan.{RelOptCluster, RelTraitSet}
 import org.apache.calcite.rel.RelNode
+import org.apache.calcite.rel.hint.RelHint
 
 import java.util
 
@@ -39,13 +40,14 @@ class BatchPhysicalLegacySink[T](
     cluster: RelOptCluster,
     traitSet: RelTraitSet,
     inputRel: RelNode,
+    hints: util.List[RelHint],
     sink: TableSink[T],
     sinkName: String)
-  extends LegacySink(cluster, traitSet, inputRel, sink, sinkName)
+  extends LegacySink(cluster, traitSet, inputRel, hints, sink, sinkName)
   with BatchPhysicalRel {
 
   override def copy(traitSet: RelTraitSet, inputs: util.List[RelNode]): RelNode = {
-    new BatchPhysicalLegacySink(cluster, traitSet, inputs.get(0), sink, sinkName)
+    new BatchPhysicalLegacySink(cluster, traitSet, inputs.get(0), hints, sink, sinkName)
   }
 
   override def translateToExecNode(): ExecNode[_] = {
@@ -59,7 +61,7 @@ class BatchPhysicalLegacySink[T](
       upsertKeys.orNull,
       // the input records will not trigger any output of a sink because it has no output,
       // so it's dam behavior is BLOCKING
-      ExecEdge.builder().damBehavior(ExecEdge.DamBehavior.BLOCKING).build(),
+      InputProperty.builder().damBehavior(InputProperty.DamBehavior.BLOCKING).build(),
       fromDataTypeToLogicalType(sink.getConsumedDataType),
       getRelDetailedDescription
     )

@@ -18,15 +18,18 @@
 
 package org.apache.flink.table.planner.plan.nodes.physical.stream
 
+import org.apache.flink.table.api.TableException
 import org.apache.flink.table.planner.calcite.FlinkTypeFactory
 import org.apache.flink.table.planner.plan.nodes.exec.stream.StreamExecPythonCalc
-import org.apache.flink.table.planner.plan.nodes.exec.{ExecEdge, ExecNode}
+import org.apache.flink.table.planner.plan.nodes.exec.{InputProperty, ExecNode}
 
 import org.apache.calcite.plan.{RelOptCluster, RelTraitSet}
 import org.apache.calcite.rel.RelNode
 import org.apache.calcite.rel.`type`.RelDataType
 import org.apache.calcite.rel.core.Calc
 import org.apache.calcite.rex.RexProgram
+
+import scala.collection.JavaConversions._
 
 /**
   * Stream physical RelNode for Python ScalarFunctions.
@@ -49,9 +52,14 @@ class StreamPhysicalPythonCalc(
   }
 
   override def translateToExecNode(): ExecNode[_] = {
+    val projection = calcProgram.getProjectList.map(calcProgram.expandLocalRef)
+    if (calcProgram.getCondition != null) {
+      throw new TableException("The condition of StreamPhysicalPythonCalc should be null.")
+    }
+
     new StreamExecPythonCalc(
-      getProgram,
-      ExecEdge.DEFAULT,
+      projection,
+      InputProperty.DEFAULT,
       FlinkTypeFactory.toLogicalRowType(getRowType),
       getRelDetailedDescription)
   }

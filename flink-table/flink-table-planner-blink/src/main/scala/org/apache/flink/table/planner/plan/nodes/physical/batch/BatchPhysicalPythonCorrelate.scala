@@ -17,9 +17,10 @@
  */
 package org.apache.flink.table.planner.plan.nodes.physical.batch
 
+import org.apache.flink.table.api.TableException
 import org.apache.flink.table.planner.calcite.FlinkTypeFactory
 import org.apache.flink.table.planner.plan.nodes.exec.batch.BatchExecPythonCorrelate
-import org.apache.flink.table.planner.plan.nodes.exec.{ExecEdge, ExecNode}
+import org.apache.flink.table.planner.plan.nodes.exec.{InputProperty, ExecNode}
 import org.apache.flink.table.planner.plan.nodes.logical.FlinkLogicalTableFunctionScan
 import org.apache.flink.table.planner.plan.utils.JoinTypeUtil
 
@@ -64,11 +65,18 @@ class BatchPhysicalPythonCorrelate(
   }
 
   override def translateToExecNode(): ExecNode[_] = {
+    if (condition.orNull != null) {
+      if (joinType == JoinRelType.LEFT) {
+        throw new TableException("Currently Python correlate does not support conditions" +
+                                   " in left join.")
+      }
+      throw new TableException("The condition of BatchPhysicalPythonCorrelate should be null.")
+    }
+
     new BatchExecPythonCorrelate(
       JoinTypeUtil.getFlinkJoinType(joinType),
       scan.getCall.asInstanceOf[RexCall],
-      condition.orNull,
-      ExecEdge.DEFAULT,
+      InputProperty.DEFAULT,
       FlinkTypeFactory.toLogicalRowType(getRowType),
       getRelDetailedDescription
     )

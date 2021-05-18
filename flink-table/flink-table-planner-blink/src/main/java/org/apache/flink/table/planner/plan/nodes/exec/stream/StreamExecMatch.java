@@ -44,8 +44,10 @@ import org.apache.flink.table.planner.delegation.PlannerBase;
 import org.apache.flink.table.planner.plan.nodes.exec.ExecEdge;
 import org.apache.flink.table.planner.plan.nodes.exec.ExecNode;
 import org.apache.flink.table.planner.plan.nodes.exec.ExecNodeBase;
-import org.apache.flink.table.planner.plan.nodes.exec.utils.MatchSpec;
-import org.apache.flink.table.planner.plan.nodes.exec.utils.SortSpec;
+import org.apache.flink.table.planner.plan.nodes.exec.InputProperty;
+import org.apache.flink.table.planner.plan.nodes.exec.MultipleTransformationTranslator;
+import org.apache.flink.table.planner.plan.nodes.exec.spec.MatchSpec;
+import org.apache.flink.table.planner.plan.nodes.exec.spec.SortSpec;
 import org.apache.flink.table.planner.plan.utils.KeySelectorUtil;
 import org.apache.flink.table.planner.plan.utils.RexDefaultVisitor;
 import org.apache.flink.table.planner.utils.JavaScalaConversionUtil;
@@ -58,8 +60,11 @@ import org.apache.flink.table.runtime.typeutils.InternalTypeInfo;
 import org.apache.flink.table.runtime.typeutils.TypeCheckUtils;
 import org.apache.flink.table.types.logical.LogicalType;
 import org.apache.flink.table.types.logical.RowType;
-import org.apache.flink.table.types.logical.TimestampType;
 import org.apache.flink.util.MathUtils;
+
+import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.annotation.JsonCreator;
+import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.annotation.JsonProperty;
 
 import org.apache.calcite.rex.RexCall;
 import org.apache.calcite.rex.RexLiteral;
@@ -76,26 +81,55 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
 
-/** Stream {@link ExecNode} which matches along with MATCH_RECOGNIZE. */
-public class StreamExecMatch extends ExecNodeBase<RowData> implements StreamExecNode<RowData> {
+import static org.apache.flink.table.types.logical.utils.LogicalTypeChecks.getPrecision;
+import static org.apache.flink.util.Preconditions.checkArgument;
+import static org.apache.flink.util.Preconditions.checkNotNull;
 
+/** Stream {@link ExecNode} which matches along with MATCH_RECOGNIZE. */
+@JsonIgnoreProperties(ignoreUnknown = true)
+public class StreamExecMatch extends ExecNodeBase<RowData>
+        implements StreamExecNode<RowData>, MultipleTransformationTranslator<RowData> {
+
+    public static final String FIELD_NAME_MATCH_SPEC = "matchSpec";
+
+    @JsonProperty(FIELD_NAME_MATCH_SPEC)
     private final MatchSpec matchSpec;
 
     public StreamExecMatch(
-            MatchSpec matchSpec, ExecEdge inputEdge, RowType outputType, String description) {
-        super(Collections.singletonList(inputEdge), outputType, description);
-        this.matchSpec = matchSpec;
+            MatchSpec matchSpec,
+            InputProperty inputProperty,
+            RowType outputType,
+            String description) {
+        this(
+                matchSpec,
+                getNewNodeId(),
+                Collections.singletonList(inputProperty),
+                outputType,
+                description);
+    }
+
+    @JsonCreator
+    public StreamExecMatch(
+            @JsonProperty(FIELD_NAME_MATCH_SPEC) MatchSpec matchSpec,
+            @JsonProperty(FIELD_NAME_ID) int id,
+            @JsonProperty(FIELD_NAME_INPUT_PROPERTIES) List<InputProperty> inputProperties,
+            @JsonProperty(FIELD_NAME_OUTPUT_TYPE) RowType outputType,
+            @JsonProperty(FIELD_NAME_DESCRIPTION) String description) {
+        super(id, inputProperties, outputType, description);
+        checkArgument(inputProperties.size() == 1);
+        this.matchSpec = checkNotNull(matchSpec);
     }
 
     @SuppressWarnings("unchecked")
     @Override
     protected Transformation<RowData> translateToPlanInternal(PlannerBase planner) {
-        final TableConfig config = planner.getTableConfig();
-        final ExecNode<RowData> inputNode = (ExecNode<RowData>) getInputNodes().get(0);
-        final Transformation<RowData> inputTransform = inputNode.translateToPlan(planner);
-        final RowType inputRowType = (RowType) inputNode.getOutputType();
+        final ExecEdge inputEdge = getInputEdges().get(0);
+        final Transformation<RowData> inputTransform =
+                (Transformation<RowData>) inputEdge.translateToPlan(planner);
+        final RowType inputRowType = (RowType) inputEdge.getOutputType();
 
         checkOrderKeys(inputRowType);
+        final TableConfig config = planner.getTableConfig();
         final EventComparator<RowData> eventComparator =
                 createEventComparator(config, inputRowType);
         final Transformation<RowData> timestampedInputTransform =
@@ -221,7 +255,7 @@ public class StreamExecMatch extends ExecNodeBase<RowData> implements StreamExec
 
         if (TypeCheckUtils.isRowTime(timeOrderFieldType)) {
             // copy the rowtime field into the StreamRecord timestamp field
-            int precision = ((TimestampType) timeOrderFieldType).getPrecision();
+            int precision = getPrecision(timeOrderFieldType);
             Transformation<RowData> transform =
                     new OneInputTransformation<>(
                             inputTransform,

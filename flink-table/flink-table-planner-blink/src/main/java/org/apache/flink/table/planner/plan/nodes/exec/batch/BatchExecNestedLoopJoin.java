@@ -19,7 +19,6 @@
 package org.apache.flink.table.planner.plan.nodes.exec.batch;
 
 import org.apache.flink.api.dag.Transformation;
-import org.apache.flink.streaming.api.transformations.TwoInputTransformation;
 import org.apache.flink.table.api.TableConfig;
 import org.apache.flink.table.api.config.ExecutionConfigOptions;
 import org.apache.flink.table.data.RowData;
@@ -27,8 +26,8 @@ import org.apache.flink.table.planner.codegen.CodeGeneratorContext;
 import org.apache.flink.table.planner.codegen.NestedLoopJoinCodeGenerator;
 import org.apache.flink.table.planner.delegation.PlannerBase;
 import org.apache.flink.table.planner.plan.nodes.exec.ExecEdge;
-import org.apache.flink.table.planner.plan.nodes.exec.ExecNode;
 import org.apache.flink.table.planner.plan.nodes.exec.ExecNodeBase;
+import org.apache.flink.table.planner.plan.nodes.exec.InputProperty;
 import org.apache.flink.table.planner.plan.nodes.exec.utils.ExecNodeUtil;
 import org.apache.flink.table.runtime.operators.CodeGenOperatorFactory;
 import org.apache.flink.table.runtime.operators.join.FlinkJoinType;
@@ -55,11 +54,11 @@ public class BatchExecNestedLoopJoin extends ExecNodeBase<RowData>
             RexNode condition,
             boolean leftIsBuild,
             boolean singleRowJoin,
-            ExecEdge leftEdge,
-            ExecEdge rightEdge,
+            InputProperty leftInputProperty,
+            InputProperty rightInputProperty,
             RowType outputType,
             String description) {
-        super(Arrays.asList(leftEdge, rightEdge), outputType, description);
+        super(Arrays.asList(leftInputProperty, rightInputProperty), outputType, description);
         this.joinType = checkNotNull(joinType);
         this.condition = checkNotNull(condition);
         this.leftIsBuild = leftIsBuild;
@@ -69,15 +68,17 @@ public class BatchExecNestedLoopJoin extends ExecNodeBase<RowData>
     @Override
     @SuppressWarnings("unchecked")
     protected Transformation<RowData> translateToPlanInternal(PlannerBase planner) {
-        ExecNode<RowData> leftInputNode = (ExecNode<RowData>) getInputNodes().get(0);
-        ExecNode<RowData> rightInputNode = (ExecNode<RowData>) getInputNodes().get(1);
+        ExecEdge leftInputEdge = getInputEdges().get(0);
+        ExecEdge rightInputEdge = getInputEdges().get(1);
 
-        Transformation<RowData> leftInputTransform = leftInputNode.translateToPlan(planner);
-        Transformation<RowData> rightInputTransform = rightInputNode.translateToPlan(planner);
+        Transformation<RowData> leftInputTransform =
+                (Transformation<RowData>) leftInputEdge.translateToPlan(planner);
+        Transformation<RowData> rightInputTransform =
+                (Transformation<RowData>) rightInputEdge.translateToPlan(planner);
 
-        // get type
-        RowType leftType = (RowType) leftInputNode.getOutputType();
-        RowType rightType = (RowType) rightInputNode.getOutputType();
+        // get input types
+        RowType leftType = (RowType) leftInputEdge.getOutputType();
+        RowType rightType = (RowType) rightInputEdge.getOutputType();
 
         TableConfig config = planner.getTableConfig();
         CodeGenOperatorFactory<RowData> operator =
@@ -104,20 +105,13 @@ public class BatchExecNestedLoopJoin extends ExecNodeBase<RowData>
                             .getBytes();
         }
 
-        TwoInputTransformation<RowData, RowData, RowData> transform =
-                ExecNodeUtil.createTwoInputTransformation(
-                        leftInputTransform,
-                        rightInputTransform,
-                        getDescription(),
-                        operator,
-                        InternalTypeInfo.of(getOutputType()),
-                        parallelism,
-                        manageMem);
-
-        if (inputsContainSingleton()) {
-            transform.setParallelism(1);
-            transform.setMaxParallelism(1);
-        }
-        return transform;
+        return ExecNodeUtil.createTwoInputTransformation(
+                leftInputTransform,
+                rightInputTransform,
+                getDescription(),
+                operator,
+                InternalTypeInfo.of(getOutputType()),
+                parallelism,
+                manageMem);
     }
 }

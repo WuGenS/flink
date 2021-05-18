@@ -18,11 +18,11 @@
 
 package org.apache.flink.table.planner.plan.nodes.physical.stream
 
-import org.apache.flink.table.planner.calcite.FlinkRelBuilder.PlannerNamedWindowProperty
 import org.apache.flink.table.planner.calcite.FlinkTypeFactory
+import org.apache.flink.table.planner.expressions.PlannerNamedWindowProperty
 import org.apache.flink.table.planner.plan.logical._
 import org.apache.flink.table.planner.plan.nodes.exec.stream.StreamExecGroupWindowAggregate
-import org.apache.flink.table.planner.plan.nodes.exec.{ExecEdge, ExecNode}
+import org.apache.flink.table.planner.plan.nodes.exec.{ExecNode, InputProperty}
 import org.apache.flink.table.planner.plan.utils.{ChangelogPlanUtils, WindowEmitStrategy}
 
 import org.apache.calcite.plan.{RelOptCluster, RelTraitSet}
@@ -31,8 +31,13 @@ import org.apache.calcite.rel.`type`.RelDataType
 import org.apache.calcite.rel.core.AggregateCall
 
 /**
-  * Streaming group window aggregate physical node which will be translate to window operator.
-  */
+ * Streaming group window aggregate physical node which will be translate to window operator.
+ *
+ * Note: The differences between [[StreamPhysicalWindowAggregate]] and
+ * [[StreamPhysicalGroupWindowAggregate]] is that, [[StreamPhysicalWindowAggregate]] is translated
+ * from window TVF syntax, but the other is from the legacy GROUP WINDOW FUNCTION syntax.
+ * In the long future, [[StreamPhysicalGroupWindowAggregate]] will be dropped.
+ */
 class StreamPhysicalGroupWindowAggregate(
     cluster: RelOptCluster,
     traitSet: RelTraitSet,
@@ -74,9 +79,8 @@ class StreamPhysicalGroupWindowAggregate(
       aggCalls.toArray,
       window,
       namedWindowProperties.toArray,
-      emitStrategy,
       needRetraction,
-      ExecEdge.DEFAULT,
+      InputProperty.DEFAULT,
       FlinkTypeFactory.toLogicalRowType(getRowType),
       getRelDetailedDescription
     )

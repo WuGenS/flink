@@ -18,67 +18,167 @@
 
 package org.apache.flink.table.runtime.operators.window.slicing;
 
+import org.junit.Before;
 import org.junit.Test;
+import org.junit.runner.RunWith;
+import org.junit.runners.Parameterized;
 
 import java.time.Duration;
+import java.time.ZoneId;
+import java.util.Arrays;
+import java.util.Collection;
 import java.util.Collections;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
 
 /** Tests for {@link SliceAssigners.WindowedSliceAssigner}. */
+@RunWith(Parameterized.class)
 public class WindowedSliceAssignerTest extends SliceAssignerTestBase {
 
-    @Test
-    public void testSliceAssignment() {
-        SliceAssigner assigner = SliceAssigners.windowed(0, Duration.ofSeconds(5));
+    @Parameterized.Parameter public ZoneId shiftTimeZone;
 
-        assertEquals(0L, assignSliceEnd(assigner, 0L));
-        assertEquals(5000L, assignSliceEnd(assigner, 5000L));
-        assertEquals(10000L, assignSliceEnd(assigner, 10000L));
+    @Parameterized.Parameters(name = "timezone = {0}")
+    public static Collection<ZoneId> parameters() {
+        return Arrays.asList(ZoneId.of("America/Los_Angeles"), ZoneId.of("Asia/Shanghai"));
+    }
+
+    private SliceAssigner tumbleAssigner;
+    private SliceAssigner hopAssigner;
+    private SliceAssigner cumulateAssigner;
+
+    @Before
+    public void setUp() {
+        this.tumbleAssigner = SliceAssigners.tumbling(-1, shiftTimeZone, Duration.ofHours(4));
+        this.hopAssigner =
+                SliceAssigners.hopping(0, shiftTimeZone, Duration.ofHours(5), Duration.ofHours(1));
+        this.cumulateAssigner =
+                SliceAssigners.cumulative(
+                        0, shiftTimeZone, Duration.ofHours(5), Duration.ofHours(1));
     }
 
     @Test
-    public void testGetWindowStart() {
-        SliceAssigner assigner = SliceAssigners.windowed(0, Duration.ofSeconds(5));
+    public void testSliceAssignment() {
+        SliceAssigner assigner = SliceAssigners.windowed(0, tumbleAssigner);
 
-        assertEquals(-5000L, assigner.getWindowStart(0L));
-        assertEquals(0L, assigner.getWindowStart(1000L));
-        assertEquals(0L, assigner.getWindowStart(2000L));
-        assertEquals(0L, assigner.getWindowStart(3000L));
-        assertEquals(0L, assigner.getWindowStart(4000L));
-        assertEquals(0L, assigner.getWindowStart(5000L));
-        assertEquals(5000L, assigner.getWindowStart(6000L));
-        assertEquals(5000L, assigner.getWindowStart(10000L));
+        assertEquals(
+                utcMills("1970-01-01T00:00:00"),
+                assignSliceEnd(assigner, utcMills("1970-01-01T00:00:00")));
+        assertEquals(
+                utcMills("1970-01-01T05:00:00"),
+                assignSliceEnd(assigner, utcMills("1970-01-01T05:00:00")));
+        assertEquals(
+                utcMills("1970-01-01T10:00:00"),
+                assignSliceEnd(assigner, utcMills("1970-01-01T10:00:00")));
+    }
+
+    @Test
+    public void testGetWindowStartForTumble() {
+        SliceAssigner assigner = SliceAssigners.windowed(0, tumbleAssigner);
+
+        assertEquals(
+                utcMills("1969-12-31T20:00:00"),
+                assigner.getWindowStart(utcMills("1970-01-01T00:00:00")));
+        assertEquals(
+                utcMills("1970-01-01T00:00:00"),
+                assigner.getWindowStart(utcMills("1970-01-01T04:00:00")));
+        assertEquals(
+                utcMills("1970-01-01T04:00:00"),
+                assigner.getWindowStart(utcMills("1970-01-01T08:00:00")));
+    }
+
+    @Test
+    public void testGetWindowStartForHop() {
+        SliceAssigner assigner = SliceAssigners.windowed(0, hopAssigner);
+
+        assertEquals(
+                utcMills("1969-12-31T19:00:00"),
+                assigner.getWindowStart(utcMills("1970-01-01T00:00:00")));
+        assertEquals(
+                utcMills("1969-12-31T20:00:00"),
+                assigner.getWindowStart(utcMills("1970-01-01T01:00:00")));
+        assertEquals(
+                utcMills("1969-12-31T21:00:00"),
+                assigner.getWindowStart(utcMills("1970-01-01T02:00:00")));
+        assertEquals(
+                utcMills("1969-12-31T22:00:00"),
+                assigner.getWindowStart(utcMills("1970-01-01T03:00:00")));
+        assertEquals(
+                utcMills("1969-12-31T23:00:00"),
+                assigner.getWindowStart(utcMills("1970-01-01T04:00:00")));
+        assertEquals(
+                utcMills("1970-01-01T00:00:00"),
+                assigner.getWindowStart(utcMills("1970-01-01T05:00:00")));
+        assertEquals(
+                utcMills("1970-01-01T01:00:00"),
+                assigner.getWindowStart(utcMills("1970-01-01T06:00:00")));
+        assertEquals(
+                utcMills("1970-01-01T05:00:00"),
+                assigner.getWindowStart(utcMills("1970-01-01T10:00:00")));
+    }
+
+    @Test
+    public void testGetWindowStartForCumulate() {
+        SliceAssigner assigner = SliceAssigners.windowed(0, cumulateAssigner);
+
+        assertEquals(
+                utcMills("1969-12-31T19:00:00"),
+                assigner.getWindowStart(utcMills("1970-01-01T00:00:00")));
+        assertEquals(
+                utcMills("1970-01-01T00:00:00"),
+                assigner.getWindowStart(utcMills("1970-01-01T01:00:00")));
+        assertEquals(
+                utcMills("1970-01-01T00:00:00"),
+                assigner.getWindowStart(utcMills("1970-01-01T02:00:00")));
+        assertEquals(
+                utcMills("1970-01-01T00:00:00"),
+                assigner.getWindowStart(utcMills("1970-01-01T03:00:00")));
+        assertEquals(
+                utcMills("1970-01-01T00:00:00"),
+                assigner.getWindowStart(utcMills("1970-01-01T04:00:00")));
+        assertEquals(
+                utcMills("1970-01-01T00:00:00"),
+                assigner.getWindowStart(utcMills("1970-01-01T05:00:00")));
+        assertEquals(
+                utcMills("1970-01-01T05:00:00"),
+                assigner.getWindowStart(utcMills("1970-01-01T06:00:00")));
+        assertEquals(
+                utcMills("1970-01-01T05:00:00"),
+                assigner.getWindowStart(utcMills("1970-01-01T10:00:00")));
     }
 
     @Test
     public void testExpiredSlices() {
-        SliceAssigner assigner = SliceAssigners.windowed(0, Duration.ofSeconds(5));
+        SliceAssigner assigner = SliceAssigners.windowed(0, tumbleAssigner);
 
-        assertEquals(Collections.singletonList(0L), expiredSlices(assigner, 0L));
-        assertEquals(Collections.singletonList(5000L), expiredSlices(assigner, 5000L));
-        assertEquals(Collections.singletonList(10000L), expiredSlices(assigner, 10000L));
+        assertEquals(
+                Collections.singletonList(utcMills("1970-01-01T00:00:00")),
+                expiredSlices(assigner, utcMills("1970-01-01T00:00:00")));
+        assertEquals(
+                Collections.singletonList(utcMills("1970-01-01T04:00:00")),
+                expiredSlices(assigner, utcMills("1970-01-01T04:00:00")));
+        assertEquals(
+                Collections.singletonList(utcMills("1970-01-01T10:00:00")),
+                expiredSlices(assigner, utcMills("1970-01-01T10:00:00")));
     }
 
     @Test
     public void testEventTime() {
-        SliceAssigner assigner =
-                SliceAssigners.hopping(0, Duration.ofSeconds(5), Duration.ofSeconds(1));
+        SliceAssigner assigner = SliceAssigners.windowed(0, tumbleAssigner);
         assertTrue(assigner.isEventTime());
     }
 
     @Test
     public void testInvalidParameters() {
         assertErrorMessage(
-                () -> SliceAssigners.windowed(-1, Duration.ofSeconds(5)),
+                () -> SliceAssigners.windowed(-1, tumbleAssigner),
                 "Windowed slice assigner must have a positive window end index.");
 
-        assertErrorMessage(
-                () -> SliceAssigners.windowed(0, Duration.ofSeconds(-5)),
-                "Windowed Window parameters must satisfy size > 0, but got size -5000ms.");
-
         // should pass
-        SliceAssigners.tumbling(1, Duration.ofSeconds(10));
+        SliceAssigners.windowed(1, tumbleAssigner);
+    }
+
+    private long localMills(String timestampStr) {
+        return localMills(timestampStr, shiftTimeZone);
     }
 }

@@ -106,10 +106,10 @@ public class MultipleInputNodeCreationProcessorTest extends TableTestBase {
         ExecNodeGraphGenerator generator = new ExecNodeGraphGenerator();
         ExecNodeGraph execGraph = generator.generate(Collections.singletonList(optimizedRel));
         ExecNode<?> execNode = execGraph.getRootNodes().get(0);
-        while (!execNode.getInputNodes().isEmpty()) {
-            execNode = execNode.getInputNodes().get(0);
+        while (!execNode.getInputEdges().isEmpty()) {
+            execNode = execNode.getInputEdges().get(0).getSource();
         }
-        DAGProcessContext context = new DAGProcessContext(util.getPlanner());
+        ProcessorContext context = new ProcessorContext(util.getPlanner());
         Assert.assertEquals(
                 expected, MultipleInputNodeCreationProcessor.isChainableSource(execNode, context));
     }
@@ -153,7 +153,7 @@ public class MultipleInputNodeCreationProcessorTest extends TableTestBase {
                         + "(\n"
                         + "  a STRING\n"
                         + ") WITH (\n"
-                        + "  'connector' = 'filesource',\n"
+                        + "  'connector' = 'test-file',\n"
                         + "  'path' = '"
                         + file.toURI()
                         + "',\n"

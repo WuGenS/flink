@@ -21,7 +21,7 @@ package org.apache.flink.table.planner.utils;
 import org.apache.flink.api.common.ExecutionConfig;
 import org.apache.flink.api.common.operators.ResourceSpec;
 import org.apache.flink.api.dag.Transformation;
-import org.apache.flink.runtime.jobgraph.ScheduleMode;
+import org.apache.flink.runtime.jobgraph.JobType;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.streaming.api.graph.GlobalDataExchangeMode;
 import org.apache.flink.streaming.api.graph.StreamGraph;
@@ -44,6 +44,7 @@ public class ExecutorUtils {
                 new StreamGraphGenerator(
                                 transformations, execEnv.getConfig(), execEnv.getCheckpointConfig())
                         .setStateBackend(execEnv.getStateBackend())
+                        .setSavepointDir(execEnv.getDefaultSavepointDirectory())
                         .setChaining(execEnv.isChainingEnabled())
                         .setUserArtifacts(execEnv.getCachedFiles())
                         .setTimeCharacteristic(execEnv.getStreamTimeCharacteristic())
@@ -67,7 +68,10 @@ public class ExecutorUtils {
                 .forEach(sn -> sn.setResources(ResourceSpec.UNKNOWN, ResourceSpec.UNKNOWN));
         streamGraph.setChaining(true);
         streamGraph.setAllVerticesInSameSlotSharingGroupByDefault(false);
-        streamGraph.setScheduleMode(ScheduleMode.LAZY_FROM_SOURCES_WITH_BATCH_SLOT_REQUEST);
+        // Configure job type for properly selecting a supported scheduler for batch jobs.
+        // LAZY_FROM_SOURCES_WITH_BATCH_SLOT_REQUEST is only supported by the Batch scheduler (=Ng
+        // scheduler)
+        streamGraph.setJobType(JobType.BATCH);
         streamGraph.setStateBackend(null);
         streamGraph.setCheckpointStorage(null);
         if (streamGraph.getCheckpointConfig().isCheckpointingEnabled()) {

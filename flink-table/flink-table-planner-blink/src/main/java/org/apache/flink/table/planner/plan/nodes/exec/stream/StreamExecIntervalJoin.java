@@ -33,10 +33,11 @@ import org.apache.flink.table.api.TableException;
 import org.apache.flink.table.data.RowData;
 import org.apache.flink.table.planner.delegation.PlannerBase;
 import org.apache.flink.table.planner.plan.nodes.exec.ExecEdge;
-import org.apache.flink.table.planner.plan.nodes.exec.ExecNode;
 import org.apache.flink.table.planner.plan.nodes.exec.ExecNodeBase;
-import org.apache.flink.table.planner.plan.nodes.exec.utils.IntervalJoinSpec;
-import org.apache.flink.table.planner.plan.nodes.exec.utils.JoinSpec;
+import org.apache.flink.table.planner.plan.nodes.exec.InputProperty;
+import org.apache.flink.table.planner.plan.nodes.exec.MultipleTransformationTranslator;
+import org.apache.flink.table.planner.plan.nodes.exec.spec.IntervalJoinSpec;
+import org.apache.flink.table.planner.plan.nodes.exec.spec.JoinSpec;
 import org.apache.flink.table.planner.plan.utils.JoinUtil;
 import org.apache.flink.table.planner.plan.utils.KeySelectorUtil;
 import org.apache.flink.table.runtime.generated.GeneratedJoinCondition;
@@ -49,40 +50,67 @@ import org.apache.flink.table.runtime.operators.join.interval.RowTimeIntervalJoi
 import org.apache.flink.table.runtime.typeutils.InternalTypeInfo;
 import org.apache.flink.table.types.logical.RowType;
 import org.apache.flink.util.Collector;
+import org.apache.flink.util.Preconditions;
 
 import org.apache.flink.shaded.guava18.com.google.common.collect.Lists;
+import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.annotation.JsonCreator;
+import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.annotation.JsonProperty;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.List;
+
 /** {@link StreamExecNode} for a time interval stream join. */
+@JsonIgnoreProperties(ignoreUnknown = true)
 public class StreamExecIntervalJoin extends ExecNodeBase<RowData>
-        implements StreamExecNode<RowData> {
+        implements StreamExecNode<RowData>, MultipleTransformationTranslator<RowData> {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(StreamExecIntervalJoin.class);
+    public static final String FIELD_NAME_INTERVAL_JOIN_SPEC = "intervalJoinSpec";
 
+    @JsonProperty(FIELD_NAME_INTERVAL_JOIN_SPEC)
     private final IntervalJoinSpec intervalJoinSpec;
 
     public StreamExecIntervalJoin(
             IntervalJoinSpec intervalJoinSpec,
-            ExecEdge leftInputEdge,
-            ExecEdge rightInputEdge,
+            InputProperty leftInputProperty,
+            InputProperty rightInputProperty,
             RowType outputType,
             String description) {
-        super(Lists.newArrayList(leftInputEdge, rightInputEdge), outputType, description);
-        this.intervalJoinSpec = intervalJoinSpec;
+        this(
+                intervalJoinSpec,
+                getNewNodeId(),
+                Lists.newArrayList(leftInputProperty, rightInputProperty),
+                outputType,
+                description);
+    }
+
+    @JsonCreator
+    public StreamExecIntervalJoin(
+            @JsonProperty(FIELD_NAME_INTERVAL_JOIN_SPEC) IntervalJoinSpec intervalJoinSpec,
+            @JsonProperty(FIELD_NAME_ID) int id,
+            @JsonProperty(FIELD_NAME_INPUT_PROPERTIES) List<InputProperty> inputProperties,
+            @JsonProperty(FIELD_NAME_OUTPUT_TYPE) RowType outputType,
+            @JsonProperty(FIELD_NAME_DESCRIPTION) String description) {
+        super(id, inputProperties, outputType, description);
+        Preconditions.checkArgument(inputProperties.size() == 2);
+        this.intervalJoinSpec = Preconditions.checkNotNull(intervalJoinSpec);
     }
 
     @Override
     @SuppressWarnings("unchecked")
     protected Transformation<RowData> translateToPlanInternal(PlannerBase planner) {
-        ExecNode<RowData> leftInput = (ExecNode<RowData>) getInputNodes().get(0);
-        ExecNode<RowData> rightInput = (ExecNode<RowData>) getInputNodes().get(1);
+        ExecEdge leftInputEdge = getInputEdges().get(0);
+        ExecEdge rightInputEdge = getInputEdges().get(1);
 
-        RowType leftRowType = (RowType) leftInput.getOutputType();
-        RowType rightRowType = (RowType) rightInput.getOutputType();
-        Transformation<RowData> leftInputTransform = leftInput.translateToPlan(planner);
-        Transformation<RowData> rightInputTransform = rightInput.translateToPlan(planner);
+        RowType leftRowType = (RowType) leftInputEdge.getOutputType();
+        RowType rightRowType = (RowType) rightInputEdge.getOutputType();
+        Transformation<RowData> leftInputTransform =
+                (Transformation<RowData>) leftInputEdge.translateToPlan(planner);
+        Transformation<RowData> rightInputTransform =
+                (Transformation<RowData>) rightInputEdge.translateToPlan(planner);
 
         RowType returnType = (RowType) getOutputType();
         InternalTypeInfo<RowData> returnTypeInfo = InternalTypeInfo.of(returnType);
@@ -164,6 +192,7 @@ public class StreamExecIntervalJoin extends ExecNodeBase<RowData>
 
     private static class FilterAllFlatMapFunction
             implements FlatMapFunction<RowData, RowData>, ResultTypeQueryable<RowData> {
+        private static final long serialVersionUID = 1L;
 
         private final InternalTypeInfo<RowData> outputTypeInfo;
 
@@ -182,6 +211,7 @@ public class StreamExecIntervalJoin extends ExecNodeBase<RowData>
 
     private static class PaddingLeftMapFunction
             implements MapFunction<RowData, RowData>, ResultTypeQueryable<RowData> {
+        private static final long serialVersionUID = 1L;
 
         private final OuterJoinPaddingUtil paddingUtil;
         private final InternalTypeInfo<RowData> outputTypeInfo;
@@ -205,6 +235,7 @@ public class StreamExecIntervalJoin extends ExecNodeBase<RowData>
 
     private static class PaddingRightMapFunction
             implements MapFunction<RowData, RowData>, ResultTypeQueryable<RowData> {
+        private static final long serialVersionUID = 1L;
 
         private final OuterJoinPaddingUtil paddingUtil;
         private final InternalTypeInfo<RowData> outputTypeInfo;

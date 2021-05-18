@@ -20,8 +20,8 @@ import unittest
 from pyflink.table import DataTypes
 from pyflink.table.udf import TableFunction, udtf, ScalarFunction, udf
 from pyflink.testing import source_sink_utils
-from pyflink.testing.test_case_utils import PyFlinkStreamTableTestCase, \
-    PyFlinkBlinkStreamTableTestCase, PyFlinkBatchTableTestCase, PyFlinkBlinkBatchTableTestCase
+from pyflink.testing.test_case_utils import PyFlinkOldStreamTableTestCase, \
+    PyFlinkBlinkStreamTableTestCase, PyFlinkOldBatchTableTestCase, PyFlinkBlinkBatchTableTestCase
 
 
 class UserDefinedTableFunctionTests(object):
@@ -72,13 +72,61 @@ class UserDefinedTableFunctionTests(object):
 
 
 class PyFlinkStreamUserDefinedTableFunctionTests(UserDefinedTableFunctionTests,
-                                                 PyFlinkStreamTableTestCase):
+                                                 PyFlinkOldStreamTableTestCase):
     pass
 
 
 class PyFlinkBlinkStreamUserDefinedFunctionTests(UserDefinedTableFunctionTests,
                                                  PyFlinkBlinkStreamTableTestCase):
-    pass
+    def test_execute_from_json_plan(self):
+        # create source file path
+        tmp_dir = self.tempdir
+        data = ['1,1', '3,2', '2,1']
+        source_path = tmp_dir + '/test_execute_from_json_plan_input.csv'
+        sink_path = tmp_dir + '/test_execute_from_json_plan_out'
+        with open(source_path, 'w') as fd:
+            for ele in data:
+                fd.write(ele + '\n')
+
+        source_table = """
+            CREATE TABLE source_table (
+                a BIGINT,
+                b BIGINT
+            ) WITH (
+                'connector' = 'filesystem',
+                'path' = '%s',
+                'format' = 'csv'
+            )
+        """ % source_path
+        self.t_env.execute_sql(source_table)
+
+        self.t_env.execute_sql("""
+            CREATE TABLE sink_table (
+                a BIGINT,
+                b BIGINT,
+                c BIGINT
+            ) WITH (
+                'connector' = 'filesystem',
+                'path' = '%s',
+                'format' = 'csv'
+            )
+        """ % sink_path)
+
+        self.t_env.create_temporary_system_function(
+            "multi_emit", udtf(MultiEmit(), result_types=[DataTypes.BIGINT(), DataTypes.BIGINT()]))
+
+        json_plan = self.t_env._j_tenv.getJsonPlan("INSERT INTO sink_table "
+                                                   "SELECT a, x, y FROM source_table "
+                                                   "LEFT JOIN LATERAL TABLE(multi_emit(a, b))"
+                                                   " as T(x, y)"
+                                                   " ON TRUE")
+        from py4j.java_gateway import get_method
+        get_method(self.t_env._j_tenv.executeJsonPlan(json_plan), "await")()
+
+        import glob
+        lines = [line.strip() for file in glob.glob(sink_path + '/*') for line in open(file, 'r')]
+        lines.sort()
+        self.assertEqual(lines, ['1,1,0', '2,2,0', '3,3,0', '3,3,1'])
 
 
 class PyFlinkBlinkBatchUserDefinedFunctionTests(UserDefinedTableFunctionTests,
@@ -87,7 +135,7 @@ class PyFlinkBlinkBatchUserDefinedFunctionTests(UserDefinedTableFunctionTests,
 
 
 class PyFlinkBatchUserDefinedTableFunctionTests(UserDefinedTableFunctionTests,
-                                                PyFlinkBatchTableTestCase):
+                                                PyFlinkOldBatchTableTestCase):
     def _register_table_sink(self, field_names: list, field_types: list):
         pass
 

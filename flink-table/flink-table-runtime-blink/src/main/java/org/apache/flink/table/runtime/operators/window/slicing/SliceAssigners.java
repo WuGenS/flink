@@ -26,13 +26,16 @@ import org.apache.flink.util.MathUtils;
 
 import org.apache.commons.math3.util.ArithmeticUtils;
 
+import java.io.Serializable;
 import java.time.Duration;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Optional;
 import java.util.function.Supplier;
 
+import static org.apache.flink.table.runtime.util.TimeWindowUtil.toUtcTimestampMills;
 import static org.apache.flink.util.Preconditions.checkArgument;
 
 /** Utilities to create {@link SliceAssigner}s. */
@@ -49,10 +52,14 @@ public final class SliceAssigners {
      *
      * @param rowtimeIndex the index of rowtime field in the input row, {@code -1} if based on
      *     processing time.
+     * @param shiftTimeZone The shift timezone of the window, if the proctime or rowtime type is
+     *     TIMESTAMP_LTZ, the shift timezone is the timezone user configured in TableConfig, other
+     *     cases the timezone is UTC which means never shift when assigning windows.
      * @param size the size of the generated windows.
      */
-    public static TumblingSliceAssigner tumbling(int rowtimeIndex, Duration size) {
-        return new TumblingSliceAssigner(rowtimeIndex, size.toMillis(), 0);
+    public static TumblingSliceAssigner tumbling(
+            int rowtimeIndex, ZoneId shiftTimeZone, Duration size) {
+        return new TumblingSliceAssigner(rowtimeIndex, shiftTimeZone, size.toMillis(), 0);
     }
 
     /**
@@ -61,11 +68,15 @@ public final class SliceAssigners {
      *
      * @param rowtimeIndex the index of rowtime field in the input row, {@code -1} if based on *
      *     processing time.
-     * @param size the size of the generated windows.
+     * @param shiftTimeZone The shift timezone of the window, if the proctime or rowtime type is
+     *     TIMESTAMP_LTZ, the shift timezone is the timezone user configured in TableConfig, other
+     *     cases the timezone is UTC which means never shift when assigning windows.
      * @param slide the slide interval of the generated windows.
      */
-    public static HoppingSliceAssigner hopping(int rowtimeIndex, Duration size, Duration slide) {
-        return new HoppingSliceAssigner(rowtimeIndex, size.toMillis(), slide.toMillis(), 0);
+    public static HoppingSliceAssigner hopping(
+            int rowtimeIndex, ZoneId shiftTimeZone, Duration size, Duration slide) {
+        return new HoppingSliceAssigner(
+                rowtimeIndex, shiftTimeZone, size.toMillis(), slide.toMillis(), 0);
     }
 
     /**
@@ -74,12 +85,15 @@ public final class SliceAssigners {
      *
      * @param rowtimeIndex the index of rowtime field in the input row, {@code -1} if based on *
      *     processing time.
-     * @param maxSize the max size of the generated windows.
+     * @param shiftTimeZone The shift timezone of the window, if the proctime or rowtime type is
+     *     TIMESTAMP_LTZ, the shift timezone is the timezone user configured in TableConfig, other
+     *     cases the timezone is UTC which means never shift when assigning windows.
      * @param step the step interval of the generated windows.
      */
     public static CumulativeSliceAssigner cumulative(
-            int rowtimeIndex, Duration maxSize, Duration step) {
-        return new CumulativeSliceAssigner(rowtimeIndex, maxSize.toMillis(), step.toMillis(), 0);
+            int rowtimeIndex, ZoneId shiftTimeZone, Duration maxSize, Duration step) {
+        return new CumulativeSliceAssigner(
+                rowtimeIndex, shiftTimeZone, maxSize.toMillis(), step.toMillis(), 0);
     }
 
     /**
@@ -88,10 +102,27 @@ public final class SliceAssigners {
      *
      * @param windowEndIndex the index of window end field in the input row, mustn't be a negative
      *     value.
-     * @param windowSize the size of the generated window.
+     * @param innerAssigner the inner assigner which assigns the attached windows
      */
-    public static WindowedSliceAssigner windowed(int windowEndIndex, Duration windowSize) {
-        return new WindowedSliceAssigner(windowEndIndex, windowSize.toMillis());
+    public static WindowedSliceAssigner windowed(int windowEndIndex, SliceAssigner innerAssigner) {
+        return new WindowedSliceAssigner(windowEndIndex, innerAssigner);
+    }
+
+    /**
+     * Creates a {@link SliceAssigner} that assigns elements which has been attached slice end
+     * timestamp.
+     *
+     * @param sliceEndIndex the index of slice end field in the input row, mustn't be a negative
+     *     value.
+     * @param innerAssigner the inner assigner which assigns the attached windows
+     */
+    public static SliceAssigner sliced(int sliceEndIndex, SliceAssigner innerAssigner) {
+        if (innerAssigner instanceof SliceSharedAssigner) {
+            return new SlicedSharedSliceAssigner(
+                    sliceEndIndex, (SliceSharedAssigner) innerAssigner);
+        } else {
+            return new SlicedUnsharedSliceAssigner(sliceEndIndex, innerAssigner);
+        }
     }
 
     // ------—------—------—------—------—------—------—------—------—------—------—------—------—
@@ -105,15 +136,16 @@ public final class SliceAssigners {
 
         /** Creates a new {@link TumblingSliceAssigner} with a new specified offset. */
         public TumblingSliceAssigner withOffset(Duration offset) {
-            return new TumblingSliceAssigner(rowtimeIndex, size, offset.toMillis());
+            return new TumblingSliceAssigner(rowtimeIndex, shiftTimeZone, size, offset.toMillis());
         }
 
         private final long size;
         private final long offset;
         private final ReusableListIterable reuseExpiredList = new ReusableListIterable();
 
-        private TumblingSliceAssigner(int rowtimeIndex, long size, long offset) {
-            super(rowtimeIndex);
+        private TumblingSliceAssigner(
+                int rowtimeIndex, ZoneId shiftTimeZone, long size, long offset) {
+            super(rowtimeIndex, shiftTimeZone);
             checkArgument(
                     size > 0,
                     String.format(
@@ -134,6 +166,11 @@ public final class SliceAssigners {
             return start + size;
         }
 
+        @Override
+        public long getLastWindowEnd(long sliceEnd) {
+            return sliceEnd;
+        }
+
         public long getWindowStart(long windowEnd) {
             return windowEnd - size;
         }
@@ -142,6 +179,11 @@ public final class SliceAssigners {
         public Iterable<Long> expiredSlices(long windowEnd) {
             reuseExpiredList.reset(windowEnd);
             return reuseExpiredList;
+        }
+
+        @Override
+        public long getSliceEndInterval() {
+            return size;
         }
     }
 
@@ -152,7 +194,8 @@ public final class SliceAssigners {
 
         /** Creates a new {@link HoppingSliceAssigner} with a new specified offset. */
         public HoppingSliceAssigner withOffset(Duration offset) {
-            return new HoppingSliceAssigner(rowtimeIndex, size, slide, offset.toMillis());
+            return new HoppingSliceAssigner(
+                    rowtimeIndex, shiftTimeZone, size, slide, offset.toMillis());
         }
 
         private final long size;
@@ -162,8 +205,9 @@ public final class SliceAssigners {
         private final int numSlicesPerWindow;
         private final ReusableListIterable reuseExpiredList = new ReusableListIterable();
 
-        protected HoppingSliceAssigner(int rowtimeIndex, long size, long slide, long offset) {
-            super(rowtimeIndex);
+        protected HoppingSliceAssigner(
+                int rowtimeIndex, ZoneId shiftTimeZone, long size, long slide, long offset) {
+            super(rowtimeIndex, shiftTimeZone);
             if (size <= 0 || slide <= 0) {
                 throw new IllegalArgumentException(
                         String.format(
@@ -190,6 +234,11 @@ public final class SliceAssigners {
         }
 
         @Override
+        public long getLastWindowEnd(long sliceEnd) {
+            return sliceEnd - sliceSize + size;
+        }
+
+        @Override
         public long getWindowStart(long windowEnd) {
             return windowEnd - size;
         }
@@ -204,11 +253,16 @@ public final class SliceAssigners {
         }
 
         @Override
+        public long getSliceEndInterval() {
+            return sliceSize;
+        }
+
+        @Override
         public void mergeSlices(long sliceEnd, MergeCallback callback) throws Exception {
             // the iterable to list all the slices of the triggered window
             Iterable<Long> toBeMerged =
                     new HoppingSlicesIterable(sliceEnd, sliceSize, numSlicesPerWindow);
-            // null namespace means use heap data views, instead of state state views
+            // null namespace means use heap data views, instead of state data views
             callback.merge(null, toBeMerged);
         }
 
@@ -229,7 +283,8 @@ public final class SliceAssigners {
 
         /** Creates a new {@link CumulativeSliceAssigner} with a new specified offset. */
         public CumulativeSliceAssigner withOffset(Duration offset) {
-            return new CumulativeSliceAssigner(rowtimeIndex, maxSize, step, offset.toMillis());
+            return new CumulativeSliceAssigner(
+                    rowtimeIndex, shiftTimeZone, maxSize, step, offset.toMillis());
         }
 
         private final long maxSize;
@@ -238,8 +293,9 @@ public final class SliceAssigners {
         private final ReusableListIterable reuseToBeMergedList = new ReusableListIterable();
         private final ReusableListIterable reuseExpiredList = new ReusableListIterable();
 
-        protected CumulativeSliceAssigner(int rowtimeIndex, long maxSize, long step, long offset) {
-            super(rowtimeIndex);
+        protected CumulativeSliceAssigner(
+                int rowtimeIndex, ZoneId shiftTimeZone, long maxSize, long step, long offset) {
+            super(rowtimeIndex, shiftTimeZone);
             if (maxSize <= 0 || step <= 0) {
                 throw new IllegalArgumentException(
                         String.format(
@@ -265,6 +321,12 @@ public final class SliceAssigners {
         }
 
         @Override
+        public long getLastWindowEnd(long sliceEnd) {
+            long windowStart = getWindowStart(sliceEnd);
+            return windowStart + maxSize;
+        }
+
+        @Override
         public long getWindowStart(long windowEnd) {
             return TimeWindow.getWindowStartWithOffset(windowEnd - 1, offset, maxSize);
         }
@@ -286,6 +348,11 @@ public final class SliceAssigners {
                 reuseExpiredList.reset(windowEnd);
             }
             return reuseExpiredList;
+        }
+
+        @Override
+        public long getSliceEndInterval() {
+            return step;
         }
 
         @Override
@@ -321,20 +388,15 @@ public final class SliceAssigners {
         private static final long serialVersionUID = 1L;
 
         private final int windowEndIndex;
-        private final long windowSize;
+        private final SliceAssigner innerAssigner;
         private final ReusableListIterable reuseExpiredList = new ReusableListIterable();
 
-        public WindowedSliceAssigner(int windowEndIndex, long windowSize) {
+        public WindowedSliceAssigner(int windowEndIndex, SliceAssigner innerAssigner) {
             checkArgument(
                     windowEndIndex >= 0,
                     "Windowed slice assigner must have a positive window end index.");
-            checkArgument(
-                    windowSize > 0,
-                    String.format(
-                            "Windowed Window parameters must satisfy size > 0, but got size %dms.",
-                            windowSize));
             this.windowEndIndex = windowEndIndex;
-            this.windowSize = windowSize;
+            this.innerAssigner = innerAssigner;
         }
 
         @Override
@@ -343,8 +405,16 @@ public final class SliceAssigners {
         }
 
         @Override
+        public long getLastWindowEnd(long sliceEnd) {
+            // we shouldn't use innerAssigner.getLastWindowEnd here,
+            // because WindowedSliceAssigner is slice unshared, an attached window can't be
+            // shared with other windows and the last window should be itself.
+            return sliceEnd;
+        }
+
+        @Override
         public long getWindowStart(long windowEnd) {
-            return TimeWindow.getWindowStartWithOffset(windowEnd - 1, 0L, windowSize);
+            return innerAssigner.getWindowStart(windowEnd);
         }
 
         @Override
@@ -354,8 +424,110 @@ public final class SliceAssigners {
         }
 
         @Override
+        public long getSliceEndInterval() {
+            return innerAssigner.getSliceEndInterval();
+        }
+
+        @Override
         public boolean isEventTime() {
             // it always works in event-time mode if input row has been attached windows
+            return true;
+        }
+    }
+
+    /**
+     * The {@link SliceAssigner} for elements have been attached slice end timestamp, and the slices
+     * are shared.
+     */
+    public static final class SlicedSharedSliceAssigner extends AbstractSlicedSliceAssigner
+            implements SliceSharedAssigner {
+        private static final long serialVersionUID = 1L;
+        private final SliceSharedAssigner innerSharedAssigner;
+
+        public SlicedSharedSliceAssigner(int sliceEndIndex, SliceSharedAssigner innerAssigner) {
+            super(sliceEndIndex, innerAssigner);
+            this.innerSharedAssigner = innerAssigner;
+        }
+
+        @Override
+        public void mergeSlices(long sliceEnd, MergeCallback callback) throws Exception {
+            innerSharedAssigner.mergeSlices(sliceEnd, callback);
+        }
+
+        @Override
+        public Optional<Long> nextTriggerWindow(long windowEnd, Supplier<Boolean> isWindowEmpty) {
+            return innerSharedAssigner.nextTriggerWindow(windowEnd, isWindowEmpty);
+        }
+
+        @Override
+        public long getLastWindowEnd(long sliceEnd) {
+            return innerAssigner.getLastWindowEnd(sliceEnd);
+        }
+    }
+
+    /**
+     * The {@link SliceAssigner} for elements have been attached slice end timestamp, but the slices
+     * are not shared, i.e. the assigned slice is equal to the final window.
+     */
+    public static final class SlicedUnsharedSliceAssigner extends AbstractSlicedSliceAssigner
+            implements SliceUnsharedAssigner {
+
+        private static final long serialVersionUID = 1L;
+
+        public SlicedUnsharedSliceAssigner(int sliceEndIndex, SliceAssigner innerAssigner) {
+            super(sliceEndIndex, innerAssigner);
+        }
+
+        @Override
+        public long getLastWindowEnd(long sliceEnd) {
+            // we shouldn't use innerAssigner.getLastWindowEnd here,
+            // because SlicedUnsharedSliceAssigner is slice unshared, an attached unshared slice
+            // can't be shared with other windows and the last window should be itself.
+            return sliceEnd;
+        }
+    }
+
+    /**
+     * A basic implementation of {@link SliceAssigner} for elements have been attached window start
+     * and end timestamps.
+     */
+    private abstract static class AbstractSlicedSliceAssigner implements SliceAssigner {
+        private static final long serialVersionUID = 1L;
+
+        private final int sliceEndIndex;
+        protected final SliceAssigner innerAssigner;
+
+        public AbstractSlicedSliceAssigner(int sliceEndIndex, SliceAssigner innerAssigner) {
+            checkArgument(
+                    sliceEndIndex >= 0,
+                    "Windowed slice assigner must have a positive window end index.");
+            this.sliceEndIndex = sliceEndIndex;
+            this.innerAssigner = innerAssigner;
+        }
+
+        @Override
+        public long assignSliceEnd(RowData element, ClockService clock) {
+            return element.getLong(sliceEndIndex);
+        }
+
+        @Override
+        public long getWindowStart(long windowEnd) {
+            return innerAssigner.getWindowStart(windowEnd);
+        }
+
+        @Override
+        public Iterable<Long> expiredSlices(long windowEnd) {
+            return innerAssigner.expiredSlices(windowEnd);
+        }
+
+        @Override
+        public long getSliceEndInterval() {
+            return innerAssigner.getSliceEndInterval();
+        }
+
+        @Override
+        public boolean isEventTime() {
+            // it always works in event-time mode if input row has been attached slices
             return true;
         }
     }
@@ -366,9 +538,11 @@ public final class SliceAssigners {
 
         protected final int rowtimeIndex;
         protected final boolean isEventTime;
+        protected final ZoneId shiftTimeZone;
 
-        protected AbstractSliceAssigner(int rowtimeIndex) {
+        protected AbstractSliceAssigner(int rowtimeIndex, ZoneId shiftTimeZone) {
             this.rowtimeIndex = rowtimeIndex;
+            this.shiftTimeZone = shiftTimeZone;
             this.isEventTime = rowtimeIndex >= 0;
         }
 
@@ -378,10 +552,10 @@ public final class SliceAssigners {
         public final long assignSliceEnd(RowData element, ClockService clock) {
             final long timestamp;
             if (rowtimeIndex >= 0) {
-                timestamp = element.getLong(rowtimeIndex);
+                timestamp = toUtcTimestampMills(element.getLong(rowtimeIndex), shiftTimeZone);
             } else {
                 // in processing time mode
-                timestamp = clock.currentProcessingTime();
+                timestamp = toUtcTimestampMills(clock.currentProcessingTime(), shiftTimeZone);
             }
             return assignSliceEnd(timestamp);
         }
@@ -396,7 +570,10 @@ public final class SliceAssigners {
     // Private Utilities
     // ------------------------------------------------------------------------------------------
 
-    private static final class ReusableListIterable implements IterableIterator<Long> {
+    private static final class ReusableListIterable
+            implements IterableIterator<Long>, Serializable {
+        private static final long serialVersionUID = 1L;
+
         private final List<Long> values = new ArrayList<>();
         private int index = 0;
 
@@ -437,7 +614,9 @@ public final class SliceAssigners {
         }
     }
 
-    private static final class HoppingSlicesIterable implements IterableIterator<Long> {
+    private static final class HoppingSlicesIterable
+            implements IterableIterator<Long>, Serializable {
+        private static final long serialVersionUID = 1L;
 
         private final long sliceSize;
         private long lastSliceEnd;

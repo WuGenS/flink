@@ -47,7 +47,6 @@ import org.apache.flink.runtime.executiongraph.utils.SimpleAckingTaskManagerGate
 import org.apache.flink.runtime.io.network.partition.JobMasterPartitionTracker;
 import org.apache.flink.runtime.io.network.partition.NoOpJobMasterPartitionTracker;
 import org.apache.flink.runtime.jobgraph.JobGraph;
-import org.apache.flink.runtime.jobgraph.JobVertex;
 import org.apache.flink.runtime.jobgraph.JobVertexID;
 import org.apache.flink.runtime.jobgraph.OperatorID;
 import org.apache.flink.runtime.jobgraph.tasks.CheckpointCoordinatorConfiguration;
@@ -78,9 +77,7 @@ import org.slf4j.LoggerFactory;
 import javax.annotation.Nullable;
 
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.Collection;
-import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ScheduledExecutorService;
@@ -154,15 +151,6 @@ public class SchedulerTestingUtils {
             final JobGraph jobGraph,
             @Nullable StateBackend stateBackend,
             @Nullable CheckpointStorage checkpointStorage) {
-        final List<JobVertexID> triggerVertices = new ArrayList<>();
-        final List<JobVertexID> allVertices = new ArrayList<>();
-
-        for (JobVertex vertex : jobGraph.getVertices()) {
-            if (vertex.isInputVertex()) {
-                triggerVertices.add(vertex.getID());
-            }
-            allVertices.add(vertex.getID());
-        }
 
         final CheckpointCoordinatorConfiguration config =
                 new CheckpointCoordinatorConfiguration(
@@ -196,19 +184,18 @@ public class SchedulerTestingUtils {
 
         jobGraph.setSnapshotSettings(
                 new JobCheckpointingSettings(
-                        triggerVertices,
-                        allVertices,
-                        allVertices,
-                        config,
-                        serializedStateBackend,
-                        serializedCheckpointStorage,
-                        null));
+                        config, serializedStateBackend, serializedCheckpointStorage, null));
     }
 
     public static Collection<ExecutionAttemptID> getAllCurrentExecutionAttempts(
             DefaultScheduler scheduler) {
         return StreamSupport.stream(
-                        scheduler.requestJob().getAllExecutionVertices().spliterator(), false)
+                        scheduler
+                                .requestJob()
+                                .getArchivedExecutionGraph()
+                                .getAllExecutionVertices()
+                                .spliterator(),
+                        false)
                 .map((vertex) -> vertex.getCurrentExecutionAttempt().getAttemptId())
                 .collect(Collectors.toList());
     }
@@ -223,10 +210,7 @@ public class SchedulerTestingUtils {
         final ExecutionAttemptID attemptID = getAttemptId(scheduler, jvid, subtask);
         scheduler.updateTaskExecutionState(
                 new TaskExecutionState(
-                        scheduler.getJobId(),
-                        attemptID,
-                        ExecutionState.FAILED,
-                        new Exception("test task failure")));
+                        attemptID, ExecutionState.FAILED, new Exception("test task failure")));
     }
 
     public static void canceledExecution(
@@ -234,35 +218,34 @@ public class SchedulerTestingUtils {
         final ExecutionAttemptID attemptID = getAttemptId(scheduler, jvid, subtask);
         scheduler.updateTaskExecutionState(
                 new TaskExecutionState(
-                        scheduler.getJobId(),
-                        attemptID,
-                        ExecutionState.CANCELED,
-                        new Exception("test task failure")));
+                        attemptID, ExecutionState.CANCELED, new Exception("test task failure")));
     }
 
-    public static void setExecutionToRunning(
-            DefaultScheduler scheduler, JobVertexID jvid, int subtask) {
+    public static void setExecutionToState(
+            ExecutionState executionState,
+            DefaultScheduler scheduler,
+            JobVertexID jvid,
+            int subtask) {
         final ExecutionAttemptID attemptID = getAttemptId(scheduler, jvid, subtask);
-        scheduler.updateTaskExecutionState(
-                new TaskExecutionState(scheduler.getJobId(), attemptID, ExecutionState.RUNNING));
+        scheduler.updateTaskExecutionState(new TaskExecutionState(attemptID, executionState));
     }
 
     public static void setAllExecutionsToRunning(final DefaultScheduler scheduler) {
-        final JobID jid = scheduler.getJobId();
         getAllCurrentExecutionAttempts(scheduler)
                 .forEach(
-                        (attemptId) ->
-                                scheduler.updateTaskExecutionState(
-                                        new TaskExecutionState(
-                                                jid, attemptId, ExecutionState.RUNNING)));
+                        (attemptId) -> {
+                            scheduler.updateTaskExecutionState(
+                                    new TaskExecutionState(attemptId, ExecutionState.INITIALIZING));
+                            scheduler.updateTaskExecutionState(
+                                    new TaskExecutionState(attemptId, ExecutionState.RUNNING));
+                        });
     }
 
     public static void setAllExecutionsToCancelled(final DefaultScheduler scheduler) {
-        final JobID jid = scheduler.getJobId();
         for (final ExecutionAttemptID attemptId : getAllCurrentExecutionAttempts(scheduler)) {
             final boolean setToRunning =
                     scheduler.updateTaskExecutionState(
-                            new TaskExecutionState(jid, attemptId, ExecutionState.CANCELED));
+                            new TaskExecutionState(attemptId, ExecutionState.CANCELED));
 
             assertTrue("could not switch task to RUNNING", setToRunning);
         }
@@ -545,31 +528,39 @@ public class SchedulerTestingUtils {
         }
 
         public DefaultScheduler build() throws Exception {
+            final ExecutionGraphFactory executionGraphFactory =
+                    new DefaultExecutionGraphFactory(
+                            jobMasterConfiguration,
+                            userCodeLoader,
+                            new DefaultExecutionDeploymentTracker(),
+                            futureExecutor,
+                            ioExecutor,
+                            rpcTimeout,
+                            jobManagerJobMetricGroup,
+                            blobWriter,
+                            shuffleMaster,
+                            partitionTracker);
+
             return new DefaultScheduler(
                     log,
                     jobGraph,
                     ioExecutor,
                     jobMasterConfiguration,
                     componentMainThreadExecutor -> {},
-                    futureExecutor,
                     delayExecutor,
                     userCodeLoader,
                     checkpointRecoveryFactory,
-                    rpcTimeout,
-                    blobWriter,
                     jobManagerJobMetricGroup,
-                    shuffleMaster,
-                    partitionTracker,
                     schedulingStrategyFactory,
                     failoverStrategyFactory,
                     restartBackoffTimeStrategy,
                     executionVertexOperations,
                     executionVertexVersioner,
                     executionSlotAllocatorFactory,
-                    new DefaultExecutionDeploymentTracker(),
                     System.currentTimeMillis(),
                     mainThreadExecutor,
-                    jobStatusListener);
+                    jobStatusListener,
+                    executionGraphFactory);
         }
     }
 }

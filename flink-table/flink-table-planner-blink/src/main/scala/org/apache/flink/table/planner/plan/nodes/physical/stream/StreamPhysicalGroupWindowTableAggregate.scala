@@ -19,11 +19,11 @@
 package org.apache.flink.table.planner.plan.nodes.physical.stream
 
 import org.apache.flink.table.api.TableException
-import org.apache.flink.table.planner.calcite.FlinkRelBuilder.PlannerNamedWindowProperty
 import org.apache.flink.table.planner.calcite.FlinkTypeFactory
+import org.apache.flink.table.planner.expressions.PlannerNamedWindowProperty
 import org.apache.flink.table.planner.plan.logical._
 import org.apache.flink.table.planner.plan.nodes.exec.stream.StreamExecGroupWindowAggregate
-import org.apache.flink.table.planner.plan.nodes.exec.{ExecEdge, ExecNode}
+import org.apache.flink.table.planner.plan.nodes.exec.{ExecNode, InputProperty}
 import org.apache.flink.table.planner.plan.utils.{ChangelogPlanUtils, WindowEmitStrategy}
 
 import org.apache.calcite.plan.{RelOptCluster, RelTraitSet}
@@ -79,9 +79,8 @@ class StreamPhysicalGroupWindowTableAggregate(
       aggCalls.toArray,
       window,
       namedWindowProperties.toArray,
-      emitStrategy,
       needRetraction,
-      ExecEdge.DEFAULT,
+      InputProperty.DEFAULT,
       FlinkTypeFactory.toLogicalRowType(getRowType),
       getRelDetailedDescription
     )

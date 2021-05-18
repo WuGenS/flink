@@ -32,16 +32,22 @@ import org.apache.flink.table.planner.delegation.PlannerBase;
 import org.apache.flink.table.planner.plan.nodes.exec.ExecEdge;
 import org.apache.flink.table.planner.plan.nodes.exec.ExecNode;
 import org.apache.flink.table.planner.plan.nodes.exec.ExecNodeBase;
+import org.apache.flink.table.planner.plan.nodes.exec.InputProperty;
+import org.apache.flink.table.planner.plan.nodes.exec.SingleTransformationTranslator;
+import org.apache.flink.table.planner.plan.nodes.exec.spec.OverSpec;
 import org.apache.flink.table.planner.plan.nodes.exec.utils.CommonPythonUtil;
-import org.apache.flink.table.planner.plan.nodes.exec.utils.OverSpec;
 import org.apache.flink.table.planner.plan.utils.KeySelectorUtil;
 import org.apache.flink.table.planner.plan.utils.OverAggregateUtil;
 import org.apache.flink.table.runtime.keyselector.RowDataKeySelector;
 import org.apache.flink.table.runtime.typeutils.InternalTypeInfo;
+import org.apache.flink.table.types.logical.LocalZonedTimestampType;
 import org.apache.flink.table.types.logical.LogicalType;
 import org.apache.flink.table.types.logical.RowType;
 import org.apache.flink.table.types.logical.TimestampKind;
 import org.apache.flink.table.types.logical.TimestampType;
+
+import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.annotation.JsonCreator;
+import org.apache.flink.shaded.jackson2.com.fasterxml.jackson.annotation.JsonProperty;
 
 import org.apache.calcite.rel.core.AggregateCall;
 import org.slf4j.Logger;
@@ -51,10 +57,14 @@ import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
 import java.math.BigDecimal;
 import java.util.Collections;
+import java.util.List;
+
+import static org.apache.flink.util.Preconditions.checkArgument;
+import static org.apache.flink.util.Preconditions.checkNotNull;
 
 /** Stream {@link ExecNode} for python time-based over operator. */
 public class StreamExecPythonOverAggregate extends ExecNodeBase<RowData>
-        implements StreamExecNode<RowData> {
+        implements StreamExecNode<RowData>, SingleTransformationTranslator<RowData> {
     private static final Logger LOG = LoggerFactory.getLogger(StreamExecPythonOverAggregate.class);
 
     private static final String
@@ -74,12 +84,34 @@ public class StreamExecPythonOverAggregate extends ExecNodeBase<RowData>
                     "org.apache.flink.table.runtime.operators.python.aggregate.arrow.stream."
                             + "StreamArrowPythonProcTimeBoundedRowsOperator";
 
+    public static final String FIELD_NAME_OVER_SPEC = "overSpec";
+
+    @JsonProperty(FIELD_NAME_OVER_SPEC)
     private final OverSpec overSpec;
 
     public StreamExecPythonOverAggregate(
-            OverSpec overSpec, ExecEdge inputEdge, RowType outputType, String description) {
-        super(Collections.singletonList(inputEdge), outputType, description);
-        this.overSpec = overSpec;
+            OverSpec overSpec,
+            InputProperty inputProperty,
+            RowType outputType,
+            String description) {
+        this(
+                overSpec,
+                getNewNodeId(),
+                Collections.singletonList(inputProperty),
+                outputType,
+                description);
+    }
+
+    @JsonCreator
+    public StreamExecPythonOverAggregate(
+            @JsonProperty(FIELD_NAME_OVER_SPEC) OverSpec overSpec,
+            @JsonProperty(FIELD_NAME_ID) int id,
+            @JsonProperty(FIELD_NAME_INPUT_PROPERTIES) List<InputProperty> inputProperties,
+            @JsonProperty(FIELD_NAME_OUTPUT_TYPE) RowType outputType,
+            @JsonProperty(FIELD_NAME_DESCRIPTION) String description) {
+        super(id, inputProperties, outputType, description);
+        checkArgument(inputProperties.size() == 1);
+        this.overSpec = checkNotNull(overSpec);
     }
 
     @SuppressWarnings("unchecked")
@@ -109,9 +141,10 @@ public class StreamExecPythonOverAggregate extends ExecNodeBase<RowData>
                             + "excessive state size. You may specify a retention time of 0 to not clean up the state.");
         }
 
-        final ExecNode<RowData> inputNode = (ExecNode<RowData>) getInputNodes().get(0);
-        final Transformation<RowData> inputTransform = inputNode.translateToPlan(planner);
-        final RowType inputRowType = (RowType) inputNode.getOutputType();
+        final ExecEdge inputEdge = getInputEdges().get(0);
+        final Transformation<RowData> inputTransform =
+                (Transformation<RowData>) inputEdge.translateToPlan(planner);
+        final RowType inputRowType = (RowType) inputEdge.getOutputType();
 
         final int orderKey = orderKeys[0];
         final LogicalType orderKeyType = inputRowType.getFields().get(orderKey).getType();
@@ -120,8 +153,8 @@ public class StreamExecPythonOverAggregate extends ExecNodeBase<RowData>
         if (orderKeyType instanceof TimestampType
                 && ((TimestampType) orderKeyType).getKind() == TimestampKind.ROWTIME) {
             rowTimeIdx = orderKey;
-        } else if (orderKeyType instanceof TimestampType
-                && ((TimestampType) orderKeyType).getKind() == TimestampKind.PROCTIME) {
+        } else if (orderKeyType instanceof LocalZonedTimestampType
+                && ((LocalZonedTimestampType) orderKeyType).getKind() == TimestampKind.PROCTIME) {
             rowTimeIdx = -1;
         } else {
             throw new TableException(
@@ -154,10 +187,6 @@ public class StreamExecPythonOverAggregate extends ExecNodeBase<RowData>
                         tableConfig.getMinIdleStateRetentionTime(),
                         tableConfig.getMaxIdleStateRetentionTime(),
                         config);
-        if (inputsContainSingleton()) {
-            transform.setParallelism(1);
-            transform.setMaxParallelism(1);
-        }
 
         if (CommonPythonUtil.isPythonWorkerUsingManagedMemory(config)) {
             transform.declareManagedMemoryUseCaseAtSlotScope(ManagedMemoryUseCase.PYTHON);

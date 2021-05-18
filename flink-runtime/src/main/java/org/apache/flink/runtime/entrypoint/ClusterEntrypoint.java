@@ -26,9 +26,11 @@ import org.apache.flink.configuration.Configuration;
 import org.apache.flink.configuration.ConfigurationUtils;
 import org.apache.flink.configuration.GlobalConfiguration;
 import org.apache.flink.configuration.HighAvailabilityOptions;
+import org.apache.flink.configuration.IllegalConfigurationException;
 import org.apache.flink.configuration.JMXServerOptions;
 import org.apache.flink.configuration.JobManagerOptions;
 import org.apache.flink.configuration.RestOptions;
+import org.apache.flink.configuration.SchedulerExecutionMode;
 import org.apache.flink.configuration.WebOptions;
 import org.apache.flink.core.fs.FileSystem;
 import org.apache.flink.core.plugin.PluginManager;
@@ -37,7 +39,7 @@ import org.apache.flink.runtime.blob.BlobServer;
 import org.apache.flink.runtime.clusterframework.ApplicationStatus;
 import org.apache.flink.runtime.concurrent.FutureUtils;
 import org.apache.flink.runtime.concurrent.ScheduledExecutor;
-import org.apache.flink.runtime.dispatcher.ArchivedExecutionGraphStore;
+import org.apache.flink.runtime.dispatcher.ExecutionGraphInfoStore;
 import org.apache.flink.runtime.dispatcher.MiniDispatcher;
 import org.apache.flink.runtime.entrypoint.component.DispatcherResourceManagerComponent;
 import org.apache.flink.runtime.entrypoint.component.DispatcherResourceManagerComponentFactory;
@@ -99,7 +101,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
  */
 public abstract class ClusterEntrypoint implements AutoCloseableAsync, FatalErrorHandler {
 
-    public static final ConfigOption<String> EXECUTION_MODE =
+    public static final ConfigOption<String> INTERNAL_CLUSTER_EXECUTION_MODE =
             ConfigOptions.key("internal.cluster.execution-mode")
                     .defaultValue(ExecutionMode.NORMAL.toString());
 
@@ -143,7 +145,7 @@ public abstract class ClusterEntrypoint implements AutoCloseableAsync, FatalErro
     @GuardedBy("lock")
     private ExecutorService ioExecutor;
 
-    private ArchivedExecutionGraphStore archivedExecutionGraphStore;
+    private ExecutionGraphInfoStore executionGraphInfoStore;
 
     private final Thread shutDownHook;
 
@@ -151,9 +153,19 @@ public abstract class ClusterEntrypoint implements AutoCloseableAsync, FatalErro
         this.configuration = generateClusterConfiguration(configuration);
         this.terminationFuture = new CompletableFuture<>();
 
+        if (configuration.get(JobManagerOptions.SCHEDULER_MODE) == SchedulerExecutionMode.REACTIVE
+                && !supportsReactiveMode()) {
+            final String msg =
+                    "Reactive mode is configured for an unsupported cluster type. At the moment, reactive mode is only supported by standalone application clusters (bin/standalone-job.sh).";
+            // log message as well, otherwise the error is only shown in the .out file of the
+            // cluster
+            LOG.error(msg);
+            throw new IllegalConfigurationException(msg);
+        }
+
         shutDownHook =
                 ShutdownHookUtil.addShutdownHook(
-                        this::cleanupDirectories, getClass().getSimpleName(), LOG);
+                        () -> this.closeAsync().join(), getClass().getSimpleName(), LOG);
     }
 
     public CompletableFuture<ApplicationStatus> getTerminationFuture() {
@@ -186,6 +198,7 @@ public abstract class ClusterEntrypoint implements AutoCloseableAsync, FatalErro
                 // clean up any partial state
                 shutDownAsync(
                                 ApplicationStatus.FAILED,
+                                ShutdownBehaviour.STOP_APPLICATION,
                                 ExceptionUtils.stringifyException(strippedThrowable),
                                 false)
                         .get(
@@ -201,6 +214,10 @@ public abstract class ClusterEntrypoint implements AutoCloseableAsync, FatalErro
                             getClass().getSimpleName()),
                     strippedThrowable);
         }
+    }
+
+    protected boolean supportsReactiveMode() {
+        return false;
     }
 
     private void configureFileSystems(Configuration configuration, PluginManager pluginManager) {
@@ -238,7 +255,7 @@ public abstract class ClusterEntrypoint implements AutoCloseableAsync, FatalErro
                             blobServer,
                             heartbeatServices,
                             metricRegistry,
-                            archivedExecutionGraphStore,
+                            executionGraphInfoStore,
                             new RpcMetricQueryServiceRetriever(
                                     metricRegistry.getMetricQueryServiceRpcService()),
                             this);
@@ -250,13 +267,18 @@ public abstract class ClusterEntrypoint implements AutoCloseableAsync, FatalErro
                                 if (throwable != null) {
                                     shutDownAsync(
                                             ApplicationStatus.UNKNOWN,
+                                            ShutdownBehaviour.STOP_APPLICATION,
                                             ExceptionUtils.stringifyException(throwable),
                                             false);
                                 } else {
                                     // This is the general shutdown path. If a separate more
                                     // specific shutdown was
                                     // already triggered, this will do nothing
-                                    shutDownAsync(applicationStatus, null, true);
+                                    shutDownAsync(
+                                            applicationStatus,
+                                            ShutdownBehaviour.STOP_APPLICATION,
+                                            null,
+                                            true);
                                 }
                             });
         }
@@ -306,7 +328,7 @@ public abstract class ClusterEntrypoint implements AutoCloseableAsync, FatalErro
                             ConfigurationUtils.getSystemResourceMetricsProbingInterval(
                                     configuration));
 
-            archivedExecutionGraphStore =
+            executionGraphInfoStore =
                     createSerializableExecutionGraphStore(
                             configuration, commonRpcService.getScheduledExecutor());
         }
@@ -347,10 +369,13 @@ public abstract class ClusterEntrypoint implements AutoCloseableAsync, FatalErro
 
     @Override
     public CompletableFuture<Void> closeAsync() {
+        ShutdownHookUtil.removeShutdownHook(shutDownHook, getClass().getSimpleName(), LOG);
+
         return shutDownAsync(
                         ApplicationStatus.UNKNOWN,
+                        ShutdownBehaviour.STOP_PROCESS,
                         "Cluster entrypoint has been closed externally.",
-                        true)
+                        false)
                 .thenAccept(ignored -> {});
     }
 
@@ -383,9 +408,9 @@ public abstract class ClusterEntrypoint implements AutoCloseableAsync, FatalErro
                 }
             }
 
-            if (archivedExecutionGraphStore != null) {
+            if (executionGraphInfoStore != null) {
                 try {
-                    archivedExecutionGraphStore.close();
+                    executionGraphInfoStore.close();
                 } catch (Throwable t) {
                     exception = ExceptionUtils.firstOrSuppressed(t, exception);
                 }
@@ -428,7 +453,7 @@ public abstract class ClusterEntrypoint implements AutoCloseableAsync, FatalErro
         ClusterEntryPointExceptionUtils.tryEnrichClusterEntryPointError(exception);
         LOG.error("Fatal error occurred in the cluster entrypoint.", exception);
 
-        System.exit(RUNTIME_FAILURE_RETURN_CODE);
+        FlinkSecurityManager.forceProcessExit(RUNTIME_FAILURE_RETURN_CODE);
     }
 
     // --------------------------------------------------
@@ -449,6 +474,7 @@ public abstract class ClusterEntrypoint implements AutoCloseableAsync, FatalErro
 
     private CompletableFuture<ApplicationStatus> shutDownAsync(
             ApplicationStatus applicationStatus,
+            ShutdownBehaviour shutdownBehaviour,
             @Nullable String diagnostics,
             boolean cleanupHaData) {
         if (isShutDown.compareAndSet(false, true)) {
@@ -459,7 +485,7 @@ public abstract class ClusterEntrypoint implements AutoCloseableAsync, FatalErro
                     diagnostics);
 
             final CompletableFuture<Void> shutDownApplicationFuture =
-                    closeClusterComponent(applicationStatus, diagnostics);
+                    closeClusterComponent(applicationStatus, shutdownBehaviour, diagnostics);
 
             final CompletableFuture<Void> serviceShutdownFuture =
                     FutureUtils.composeAfterwards(
@@ -482,19 +508,27 @@ public abstract class ClusterEntrypoint implements AutoCloseableAsync, FatalErro
     }
 
     /**
-     * Deregister the Flink application from the resource management system by signalling the {@link
-     * ResourceManager}.
+     * Close cluster components and deregister the Flink application from the resource management
+     * system by signalling the {@link ResourceManager}.
      *
      * @param applicationStatus to terminate the application with
+     * @param shutdownBehaviour shutdown behaviour
      * @param diagnostics additional information about the shut down, can be {@code null}
      * @return Future which is completed once the shut down
      */
     private CompletableFuture<Void> closeClusterComponent(
-            ApplicationStatus applicationStatus, @Nullable String diagnostics) {
+            ApplicationStatus applicationStatus,
+            ShutdownBehaviour shutdownBehaviour,
+            @Nullable String diagnostics) {
         synchronized (lock) {
             if (clusterComponent != null) {
-                return clusterComponent.deregisterApplicationAndClose(
-                        applicationStatus, diagnostics);
+                switch (shutdownBehaviour) {
+                    case STOP_APPLICATION:
+                        return clusterComponent.stopApplication(applicationStatus, diagnostics);
+                    case STOP_PROCESS:
+                    default:
+                        return clusterComponent.stopProcess();
+                }
             } else {
                 return CompletableFuture.completedFuture(null);
             }
@@ -506,9 +540,7 @@ public abstract class ClusterEntrypoint implements AutoCloseableAsync, FatalErro
      *
      * @throws IOException if the temporary directories could not be cleaned up
      */
-    private void cleanupDirectories() throws IOException {
-        ShutdownHookUtil.removeShutdownHook(shutDownHook, getClass().getSimpleName(), LOG);
-
+    protected void cleanupDirectories() throws IOException {
         final String webTmpDir = configuration.getString(WebOptions.TMP_DIR);
 
         FileUtils.deleteDirectory(new File(webTmpDir));
@@ -522,7 +554,7 @@ public abstract class ClusterEntrypoint implements AutoCloseableAsync, FatalErro
             createDispatcherResourceManagerComponentFactory(Configuration configuration)
                     throws IOException;
 
-    protected abstract ArchivedExecutionGraphStore createSerializableExecutionGraphStore(
+    protected abstract ExecutionGraphInfoStore createSerializableExecutionGraphStore(
             Configuration configuration, ScheduledExecutor scheduledExecutor) throws IOException;
 
     protected static EntrypointClusterConfiguration parseArguments(String[] args)
@@ -573,25 +605,22 @@ public abstract class ClusterEntrypoint implements AutoCloseableAsync, FatalErro
             System.exit(STARTUP_FAILURE_RETURN_CODE);
         }
 
-        clusterEntrypoint
-                .getTerminationFuture()
-                .whenComplete(
-                        (applicationStatus, throwable) -> {
-                            final int returnCode;
+        int returnCode;
+        Throwable throwable = null;
 
-                            if (throwable != null) {
-                                returnCode = RUNTIME_FAILURE_RETURN_CODE;
-                            } else {
-                                returnCode = applicationStatus.processExitCode();
-                            }
+        try {
+            returnCode = clusterEntrypoint.getTerminationFuture().get().processExitCode();
+        } catch (Throwable e) {
+            throwable = ExceptionUtils.stripExecutionException(e);
+            returnCode = RUNTIME_FAILURE_RETURN_CODE;
+        }
 
-                            LOG.info(
-                                    "Terminating cluster entrypoint process {} with exit code {}.",
-                                    clusterEntrypointName,
-                                    returnCode,
-                                    throwable);
-                            System.exit(returnCode);
-                        });
+        LOG.info(
+                "Terminating cluster entrypoint process {} with exit code {}.",
+                clusterEntrypointName,
+                returnCode,
+                throwable);
+        System.exit(returnCode);
     }
 
     /** Execution mode of the {@link MiniDispatcher}. */
@@ -601,5 +630,10 @@ public abstract class ClusterEntrypoint implements AutoCloseableAsync, FatalErro
 
         /** Directly stops after the job has finished. */
         DETACHED
+    }
+
+    private enum ShutdownBehaviour {
+        STOP_APPLICATION,
+        STOP_PROCESS,
     }
 }

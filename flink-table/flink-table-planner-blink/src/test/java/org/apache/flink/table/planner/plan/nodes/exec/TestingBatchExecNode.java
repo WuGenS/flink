@@ -29,30 +29,44 @@ import org.apache.flink.table.types.logical.RowType;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Collectors;
+
+import static org.apache.flink.util.Preconditions.checkArgument;
 
 /** {@link TestingBatchExecNode} for testing purpose. */
 public class TestingBatchExecNode implements BatchExecNode<RowData> {
 
-    private final List<ExecNode<?>> inputNodes;
+    private final String description;
     private final List<ExecEdge> inputEdges;
+    private final List<InputProperty> inputProperties;
 
-    public TestingBatchExecNode() {
-        this.inputNodes = new ArrayList<>();
+    public TestingBatchExecNode(String description) {
+        this.description = description;
         this.inputEdges = new ArrayList<>();
+        this.inputProperties = new ArrayList<>();
     }
 
     public void addInput(ExecNode<?> input) {
-        addInput(input, ExecEdge.DEFAULT);
+        addInput(input, InputProperty.DEFAULT);
     }
 
-    public void addInput(ExecNode<?> input, ExecEdge edge) {
-        inputNodes.add(input);
-        inputEdges.add(edge);
+    public void addInput(ExecNode<?> input, InputProperty inputProperty) {
+        inputEdges.add(ExecEdge.builder().source(input).target(this).build());
+        inputProperties.add(inputProperty);
+    }
+
+    public List<ExecNode<?>> getInputNodes() {
+        return inputEdges.stream().map(ExecEdge::getSource).collect(Collectors.toList());
+    }
+
+    @Override
+    public int getId() {
+        return 0;
     }
 
     @Override
     public String getDescription() {
-        return "TestingBatchExecNode";
+        return description;
     }
 
     @Override
@@ -61,8 +75,8 @@ public class TestingBatchExecNode implements BatchExecNode<RowData> {
     }
 
     @Override
-    public List<ExecNode<?>> getInputNodes() {
-        return inputNodes;
+    public List<InputProperty> getInputProperties() {
+        return inputProperties;
     }
 
     @Override
@@ -71,12 +85,16 @@ public class TestingBatchExecNode implements BatchExecNode<RowData> {
     }
 
     @Override
-    public void replaceInputNode(int ordinalInParent, ExecNode<?> newInputNode) {
-        inputNodes.set(ordinalInParent, newInputNode);
+    public void setInputEdges(List<ExecEdge> inputEdges) {
+        this.inputEdges.clear();
+        this.inputEdges.addAll(inputEdges);
     }
 
     @Override
-    public void replaceInputEdge(int ordinalInParent, ExecEdge newInputEdge) {}
+    public void replaceInputEdge(int index, ExecEdge newInputEdge) {
+        checkArgument(index >= 0 && index < inputEdges.size());
+        inputEdges.set(index, newInputEdge);
+    }
 
     @Override
     public Transformation<RowData> translateToPlan(Planner planner) {
@@ -86,5 +104,10 @@ public class TestingBatchExecNode implements BatchExecNode<RowData> {
     @Override
     public void accept(ExecNodeVisitor visitor) {
         visitor.visit(this);
+    }
+
+    @Override
+    public String toString() {
+        return description;
     }
 }
